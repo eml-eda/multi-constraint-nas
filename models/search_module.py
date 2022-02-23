@@ -27,7 +27,7 @@ class SearchableConv2d(nn.Module):
         super().__init__()
         self.cin = inplane
         self.cout = outplane
-        self.alpha = Parameter(torch.Tensor(outplane))
+        self.alpha = Parameter(torch.Tensor(outplane-1))
         self.alpha.data.fill_(1.0)
         self.conv = nn.Conv2d(inplane, outplane, **kwargs)
         self.binarize = Binarize(th=0.5)
@@ -48,23 +48,21 @@ class SearchableConv2d(nn.Module):
         conv = self.conv
         weight = conv.weight
         bin_alpha_out = self.binarize(self.alpha)
-        pruned_weight = weight * bin_alpha_out.view(self.cout, 1, 1, 1)
+        pruned_weight = torch.cat((
+            weight[0].unsqueeze(0),
+            weight[1:] * bin_alpha_out.view(self.cout-1, 1, 1, 1)
+            ), dim=0)
         out = F.conv2d(
             x, pruned_weight, conv.bias, conv.stride, conv.padding, conv.dilation, conv.groups)
         # Compute complexities with effective shapes
         if bin_alpha_in is None:
             bin_alpha_in = torch.ones(self.cin)
-        #tmp = torch.tensor(
-        #    self.param_size * 
-        #    (bin_alpha_out.sum() / self.cout) * # Effective Cout
-        #    (bin_alpha_in.sum() / self.cin), # Effective Cin
-        #    dtype=torch.float)
         self.size = self.param_size * \
-            (bin_alpha_out.sum() / self.cout) * \
-            (bin_alpha_in.sum() / self.cin)
+            ((bin_alpha_out.sum()+1) / self.cout) * \
+            ((bin_alpha_in.sum()+1) / self.cin)
         self.ops = self.filter_size * \
-            (bin_alpha_out.sum() / self.cout) * \
-            (bin_alpha_in.sum() / self.cin) * \
+            ((bin_alpha_out.sum()+1) / self.cout) * \
+            ((bin_alpha_in.sum()+1) / self.cin) * \
             in_shape[-1] * in_shape[-2]
         return out, bin_alpha_out, self.size, self.ops
     

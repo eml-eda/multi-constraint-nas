@@ -4,6 +4,7 @@ import torch.nn.functional as F
 
 from models import hook_func as hf
 from models import search_module as sm
+import utils
 
 __all__ = [
     'plain_cnn', 'searchable_cnn'
@@ -24,7 +25,6 @@ class SimpleCNN(nn.Module):
         self.fc2 = nn.Linear(128, 10)
 
     def forward(self, x):
-        import pdb; pdb.set_trace()
         x = self.conv1(x)
         x = F.relu(x)
         x = self.conv2(x)
@@ -75,8 +75,18 @@ class SearchableSimpleCNN(nn.Module):
 def plain_cnn(**kwargs):
     return SimpleCNN(nn.Conv2d, **kwargs)
 
-def searchable_cnn(**kwargs):
+def searchable_cnn(found_model=None, **kwargs):
     model = SearchableSimpleCNN(sm.SearchableConv2d, **kwargs)
-    # Register model with hooks
-    registered_model = hf.register_hook(model, sm.SearchableConv2d, hf.track_complexity, hf.track_ch)
-    return registered_model
+    ft = kwargs.pop('ft', False)
+    if not ft:
+        # Register model with hooks tracking complexities
+        registered_model = hf.register_hook(model, sm.SearchableConv2d, hf.track_complexity, hf.track_ch)
+        return registered_model
+    else:
+        # Freeze searchable parameters
+        freezed_model = utils.freeze_model(model, sm.SearchableConv2d)
+        if found_model is not None: # Load end-of-search state-dict
+            freezed_model.load_state_dict(torch.load(found_model))
+            return freezed_model
+        else: # Perform training from scratch
+            return freezed_model
