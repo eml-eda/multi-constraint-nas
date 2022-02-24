@@ -1,5 +1,7 @@
 import argparse
 import copy
+import sys
+sys.path.append('..')
 
 import torch
 import torch.nn as nn
@@ -69,9 +71,9 @@ def main():
         transforms.ToTensor(),
         transforms.Normalize((0.1307,), (0.3081,))
         ])
-    dataset1 = datasets.MNIST('../data', train=True, download=True,
+    dataset1 = datasets.MNIST('data', train=True, download=True,
                        transform=transform)
-    dataset2 = datasets.MNIST('../data', train=False,
+    dataset2 = datasets.MNIST('data', train=False,
                        transform=transform)
     train_loader = torch.utils.data.DataLoader(dataset1,**train_kwargs)
     test_loader = torch.utils.data.DataLoader(dataset2, **test_kwargs)
@@ -89,7 +91,7 @@ def main():
     print(f"Initial size: {size_i:.3e} params\tInitial ops: {ops_i:.3e} OPs")
     alive_ch_i = copy.deepcopy(model.alive_ch)
     for k, v in alive_ch_i.items():
-        print(f"{k}:\t{int(v)} channels")
+        print(f"{k}:\t{int(v)+1} channels")
     if args.eval_complexity:
         print("Exit...")
         return
@@ -105,7 +107,7 @@ def main():
     print(f"Final size: {size_f:.3e}/{size_i:.3e} parameters\tFinal ops: {ops_f:.3e}/{ops_i:.3e} OPs")
     # Print learned alive channels
     for k, v in model.alive_ch.items():
-        print(f"{k}:\t{int(v)}/{int(alive_ch_i[k])} channels")
+        print(f"{k}:\t{int(v)+1}/{int(alive_ch_i[k])+1} channels")
 
     # Save model
     torch.save(model.state_dict(), 

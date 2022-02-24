@@ -23,12 +23,15 @@ class BinarizeFunction(torch.autograd.Function):
         return grad_output, None
 
 class SearchableConv2d(nn.Module):
-    def __init__(self, inplane, outplane, **kwargs):
+    def __init__(self, inplane, outplane, alpha=None, **kwargs):
         super().__init__()
         self.cin = inplane
         self.cout = outplane
-        self.alpha = Parameter(torch.Tensor(outplane-1))
-        self.alpha.data.fill_(1.0)
+        if alpha is None:
+            self.alpha = Parameter(torch.Tensor(outplane-1))
+            self.alpha.data.fill_(1.0)
+        else:
+            self.alpha = alpha
         self.conv = nn.Conv2d(inplane, outplane, **kwargs)
         self.binarize = Binarize(th=0.5)
         # complexities

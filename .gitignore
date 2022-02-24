@@ -1,6 +1,7 @@
 # My stuff
 log/
 saved_models/
+data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
