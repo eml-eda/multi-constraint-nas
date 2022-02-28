@@ -12,6 +12,7 @@ cifar10-init:
 kws-init:
 	mkdir -p kws/log
 	mkdir -p kws/saved_models
+	mkdir -p kws/data
 
 mnist-init:
 	mkdir -p mnist/log
@@ -24,12 +25,12 @@ vww-init:
 	wget https://www.silabs.com/public/files/github/machine_learning/benchmarks/datasets/vw_coco2014_96.tar.gz -P vww/data
 	tar -xvf vww/data/vw_coco2014_96.tar.gz -C vww/data
 	rm vww/data/vw_coco2014_96.tar.gz
-	
 
 clean:
 	rm -rf data
 	rm -rf __pycache__
 	rm -rf cifar10/__pycache__
+	rm -rf kws/__pycache__
 	rm -rf mnist/__pycache__
 	rm -rf models/__pycache__
 	rm -rf vww/__pycache__
