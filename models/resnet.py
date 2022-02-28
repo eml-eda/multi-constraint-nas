@@ -212,8 +212,8 @@ def plain_resnet8(**kwargs):
     return ResNet8(nn.Conv2d, **kwargs)
 
 def searchable_resnet8(found_model=None, **kwargs):
-    model = SearchableResNet8(sm.SearchableConv2d, **kwargs)
     ft = kwargs.pop('ft', False)
+    model = SearchableResNet8(sm.SearchableConv2d, **kwargs)
     if not ft:
         # Register model with hooks tracking complexities
         registered_model = hf.register_hook(model, sm.SearchableConv2d, hf.track_complexity, hf.track_ch)
