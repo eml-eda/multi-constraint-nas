@@ -21,9 +21,9 @@ def conv1x1(conv_func, in_planes, out_planes, stride=1, **kwargs):
                      padding=0, bias=False, groups = 1, **kwargs)
 
 # Wrapping depthwise conv with conv_func
-def dw3x3(conv_func, in_planes, out_planes, stride=1, **kwargs):
+def dw3x3(conv_func, in_planes, out_planes, stride=1, alpha=None, **kwargs):
     "3x3 convolution dw with padding"
-    return conv_func(in_planes, out_planes, kernel_size=3, stride=stride,
+    return conv_func(in_planes, out_planes, alpha=alpha, kernel_size=3, stride=stride,
                      padding=1, bias=False, groups=in_planes, **kwargs)
 
 # Wrapping fc with conv_func
@@ -50,9 +50,9 @@ class BasicBlock(nn.Module):
         return out
 
 class SearchableBasicBlock(nn.Module):
-    def __init__(self, conv_func, inplanes, planes, stride=1, **kwargs):
+    def __init__(self, conv_func, inplanes, planes, stride=1, alpha=None, **kwargs):
         super().__init__()
-        self.conv0 = dw3x3(conv_func, inplanes, inplanes, stride=stride, **kwargs)
+        self.conv0 = dw3x3(conv_func, inplanes, inplanes, stride=stride, alpha=alpha, **kwargs)
         self.bn0 = nn.BatchNorm2d(inplanes)
         self.conv1 = conv1x1(conv_func, inplanes, planes, **kwargs)
         self.bn1 = nn.BatchNorm2d(planes)
@@ -127,15 +127,21 @@ class SearchableDsCNN(nn.Module):
         self.dpout0 = nn.Dropout(0.2)
 
         # Backbone
-        self.bb_1 = SearchableBasicBlock(conv_func, 64, 64, 1, **kwargs)
-        self.bb_2 = SearchableBasicBlock(conv_func, 64, 64, 1, **kwargs)
-        self.bb_3 = SearchableBasicBlock(conv_func, 64, 64, 1, **kwargs)
-        self.bb_4 = SearchableBasicBlock(conv_func, 64, 64, 1, **kwargs)
+        self.bb_1 = SearchableBasicBlock(conv_func, 64, 64, 1, alpha=self.input_layer.alpha, **kwargs)
+        self.bb_2 = SearchableBasicBlock(conv_func, 64, 64, 1, alpha=self.bb_1.conv1.alpha, **kwargs)
+        self.bb_3 = SearchableBasicBlock(conv_func, 64, 64, 1, alpha=self.bb_2.conv1.alpha, **kwargs)
+        self.bb_4 = SearchableBasicBlock(conv_func, 64, 64, 1, alpha=self.bb_3.conv1.alpha, **kwargs)
         self.dpout1 = nn.Dropout(0.4)
         
         # Final classifier
         self.pool = nn.AvgPool2d((int(input_size[0]/2), int(input_size[1]/2)))
         self.fc = fc(conv_func, 64, num_classes, **kwargs)
+
+        # Dictionaries with alive ch for each searched layer
+        self.alive_ch = {}
+        # Dictionaries where complexities are stored
+        self.size_dict = {}
+        self.ops_dict = {}
 
         # Init
         for m in self.modules():
@@ -156,10 +162,10 @@ class SearchableDsCNN(nn.Module):
         x = self.dpout0(x)
 
         # Backbone
-        x, alpha_1, size, ops = self.bb_1(x, alpha_0)
-        x, alpha_2, size, ops = self.bb_2(x, alpha_1)
-        x, alpha_3, size, ops = self.bb_3(x, alpha_2)
-        x, alpha_4, size, ops = self.bb_4(x, alpha_3)
+        x, alpha_1 = self.bb_1(x, alpha_0)
+        x, alpha_2 = self.bb_2(x, alpha_1)
+        x, alpha_3 = self.bb_3(x, alpha_2)
+        x, alpha_4 = self.bb_4(x, alpha_3)
         x = self.dpout1(x)
 
         # Final classifier
@@ -169,6 +175,8 @@ class SearchableDsCNN(nn.Module):
         return x[:, :, 0, 0]
 
 def plain_dscnn(**kwargs):
+    kwargs.pop('found_model', None)
+    kwargs.pop('ft', None)
     return DsCNN(nn.Conv2d, **kwargs)
 
 def searchable_dscnn(found_model=None, **kwargs):

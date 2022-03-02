@@ -27,6 +27,8 @@ class SearchableConv2d(nn.Module):
         super().__init__()
         self.cin = inplane
         self.cout = outplane
+        self.stride = kwargs.get('stride', 1)
+        self.groups = kwargs.get('groups', 1)
         if alpha is None:
             self.alpha = Parameter(torch.Tensor(outplane-1))
             self.alpha.data.fill_(1.0)
@@ -35,13 +37,12 @@ class SearchableConv2d(nn.Module):
         self.conv = nn.Conv2d(inplane, outplane, **kwargs)
         self.binarize = Binarize(th=0.5)
         # complexities
-        stride = kwargs['stride'] if 'stride' in kwargs else 1
         if isinstance(kwargs['kernel_size'], tuple):
             kernel_size = kwargs['kernel_size'][0] * kwargs['kernel_size'][1]
         else:
             kernel_size = kwargs['kernel_size'] * kwargs['kernel_size']
-        self.param_size = inplane * outplane * kernel_size / kwargs['groups']
-        self.filter_size = self.param_size / float(stride ** 2.0)
+        self.param_size = inplane * outplane * kernel_size / self.groups
+        self.filter_size = self.param_size / float(self.stride ** 2.0)
         self.register_buffer('size', torch.tensor(0, dtype=torch.float))
         self.register_buffer('ops', torch.tensor(0, dtype=torch.float))
 
@@ -59,7 +60,7 @@ class SearchableConv2d(nn.Module):
             x, pruned_weight, conv.bias, conv.stride, conv.padding, conv.dilation, conv.groups)
         # Compute complexities with effective shapes
         if bin_alpha_in is None:
-            bin_alpha_in = torch.ones(self.cin)
+            bin_alpha_in = torch.ones(self.cin-1)
         self.size = self.param_size * \
             ((bin_alpha_out.sum()+1) / self.cout) * \
             ((bin_alpha_in.sum()+1) / self.cin)
@@ -67,6 +68,9 @@ class SearchableConv2d(nn.Module):
             ((bin_alpha_out.sum()+1) / self.cout) * \
             ((bin_alpha_in.sum()+1) / self.cin) * \
             in_shape[-1] * in_shape[-2]
+        if self.groups > 1: # Depthwise Conv, adjust complexities
+            self.size *= self.groups / (bin_alpha_in.sum()+1)
+            self.ops *= self.groups / (bin_alpha_in.sum()+1)
         return out, bin_alpha_out, self.size, self.ops
     
     def complexity_loss(self):
