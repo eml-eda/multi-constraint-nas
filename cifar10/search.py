@@ -51,6 +51,8 @@ def main():
                         help='random seed (default: 1)')
     parser.add_argument('--log-interval', type=int, default=10, metavar='N',
                         help='how many batches to wait before logging training status')
+    parser.add_argument('--pretrained-model', type=str, default=None,
+                        help='Path to a pretrained model')
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -88,6 +90,14 @@ def main():
 
     print("=> creating model '{}'".format(args.arch))
     model = models.__dict__[args.arch]().to(device)
+
+    # Check if pretrained model exists
+    if args.pretrained_model is not None:
+        print("=> using pre-trained model '{}'".format(args.pretrained_model))
+        model.load_state_dict(torch.load(args.pretrained_model))
+    else:
+        print("=> no pre-trained model found")
+
     optimizer = optim.SGD(model.parameters(), lr=args.lr,
                             weight_decay=1e-4)
 
