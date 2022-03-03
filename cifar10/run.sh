@@ -4,7 +4,7 @@ size_target=$1
 cd_ops=$2
 
 arch="searchable_resnet8"
-pretrained_model="saved_models/warmup.pth.tar"
+pretrained_model="pretrained_model/warmup.pth.tar"
 
 if [[ "$3" == "search" ]]; then
     echo Search
