@@ -24,9 +24,9 @@ def conv1x1(conv_func, in_planes, out_planes, stride=1, **kwargs):
                      padding=0, bias=False, groups = 1, **kwargs)
 
 # Wrapping depthwise conv with conv_func
-def dw3x3(conv_func, in_planes, out_planes, stride=1, **kwargs):
+def dw3x3(conv_func, in_planes, out_planes, stride=1, alpha=None, **kwargs):
     "3x3 convolution dw with padding"
-    return conv_func(in_planes, out_planes, kernel_size=3, stride=stride,
+    return conv_func(in_planes, out_planes, alpha=alpha, kernel_size=3, stride=stride,
                      padding=1, bias=False, groups=in_planes, **kwargs)
 
 # Wrapping fc with conv_func
@@ -39,9 +39,9 @@ class BasicBlock(nn.Module):
     def __init__(self, conv_func, inplanes, planes, stride=1, **kwargs):
         super().__init__()
         self.conv0 = dw3x3(conv_func, inplanes, inplanes, stride=stride, **kwargs)
-        self.bn0 = nn.BatchNorm2d(inplanes, affine=bnaff)
+        self.bn0 = nn.BatchNorm2d(inplanes)
         self.conv1 = conv1x1(conv_func, inplanes, planes, **kwargs)
-        self.bn1 = nn.BatchNorm2d(planes, affine=bnaff)
+        self.bn1 = nn.BatchNorm2d(planes)
 
     def forward(self, x):
         out = self.conv0(x)
@@ -53,12 +53,12 @@ class BasicBlock(nn.Module):
         return out
 
 class SearchableBasicBlock(nn.Module):
-    def __init__(self, conv_func, inplanes, planes, stride=1, **kwargs):
+    def __init__(self, conv_func, inplanes, planes, stride=1, alpha=None, **kwargs):
         super().__init__()
-        self.conv0 = dw3x3(conv_func, inplanes, inplanes, stride=stride, **kwargs)
-        self.bn0 = nn.BatchNorm2d(inplanes, affine=bnaff)
+        self.conv0 = dw3x3(conv_func, inplanes, inplanes, stride=stride, alpha=alpha, **kwargs)
+        self.bn0 = nn.BatchNorm2d(inplanes)
         self.conv1 = conv1x1(conv_func, inplanes, planes, **kwargs)
-        self.bn1 = nn.BatchNorm2d(planes, affine=bnaff)
+        self.bn1 = nn.BatchNorm2d(planes)
 
     def forward(self, x, alpha_prev=None):
         out, alpha_0, size, ops = self.conv0(x, alpha_prev)
@@ -139,23 +139,37 @@ class SearchableMobileNetV1(nn.Module):
         self.conv_func = conv_func
         super().__init__()
         # Input layer
-        self.input_layer = conv_func(3, make_divisible(32*width_mult), kernel_size=3, stride=2, padding=1, bias=False, groups=1, **kwargs)
+        self.input_layer = conv_func(3, make_divisible(32*width_mult), kernel_size=3, 
+            stride=2, padding=1, bias=False, groups=1, **kwargs)
         self.bn = nn.BatchNorm2d(make_divisible(32*width_mult))
 
         # Backbone
-        self.bb_1 = SearchableBasicBlock(conv_func, make_divisible(32*width_mult), make_divisible(64*width_mult), 1, **kwargs)
-        self.bb_2 = SearchableBasicBlock(conv_func, make_divisible(64*width_mult), make_divisible(128*width_mult), 2, **kwargs)
-        self.bb_3 = SearchableBasicBlock(conv_func, make_divisible(128*width_mult), make_divisible(128*width_mult), 1, **kwargs)
-        self.bb_4 = SearchableBasicBlock(conv_func, make_divisible(128*width_mult), make_divisible(256*width_mult), 2, **kwargs)
-        self.bb_5 = SearchableBasicBlock(conv_func, make_divisible(256*width_mult), make_divisible(256*width_mult), 1, **kwargs)
-        self.bb_6 = SearchableBasicBlock(conv_func, make_divisible(256*width_mult), make_divisible(512*width_mult), 2, **kwargs)
-        self.bb_7 = SearchableBasicBlock(conv_func, make_divisible(512*width_mult), make_divisible(512*width_mult), 1, **kwargs)
-        self.bb_8 = SearchableBasicBlock(conv_func, make_divisible(512*width_mult), make_divisible(512*width_mult), 1, **kwargs)
-        self.bb_9 = SearchableBasicBlock(conv_func, make_divisible(512*width_mult), make_divisible(512*width_mult), 1, **kwargs)
-        self.bb_10 = SearchableBasicBlock(conv_func, make_divisible(512*width_mult), make_divisible(512*width_mult), 1, **kwargs)
-        self.bb_11 = SearchableBasicBlock(conv_func, make_divisible(512*width_mult), make_divisible(512*width_mult), 1, **kwargs)
-        self.bb_12 = SearchableBasicBlock(conv_func, make_divisible(512*width_mult), make_divisible(1024*width_mult), 2, **kwargs)
-        self.bb_13 = SearchableBasicBlock(conv_func, make_divisible(1024*width_mult), make_divisible(1024*width_mult), 1, **kwargs)
+        self.bb_1 = SearchableBasicBlock(conv_func, make_divisible(32*width_mult), 
+            make_divisible(64*width_mult), 1, alpha=self.input_layer.alpha, **kwargs)
+        self.bb_2 = SearchableBasicBlock(conv_func, make_divisible(64*width_mult), 
+            make_divisible(128*width_mult), 2, alpha=self.bb_1.conv1.alpha, **kwargs)
+        self.bb_3 = SearchableBasicBlock(conv_func, make_divisible(128*width_mult), 
+            make_divisible(128*width_mult), 1, alpha=self.bb_2.conv1.alpha, **kwargs)
+        self.bb_4 = SearchableBasicBlock(conv_func, make_divisible(128*width_mult), 
+            make_divisible(256*width_mult), 2, alpha=self.bb_3.conv1.alpha, **kwargs)
+        self.bb_5 = SearchableBasicBlock(conv_func, make_divisible(256*width_mult), 
+            make_divisible(256*width_mult), 1, alpha=self.bb_4.conv1.alpha, **kwargs)
+        self.bb_6 = SearchableBasicBlock(conv_func, make_divisible(256*width_mult), 
+            make_divisible(512*width_mult), 2, alpha=self.bb_5.conv1.alpha, **kwargs)
+        self.bb_7 = SearchableBasicBlock(conv_func, make_divisible(512*width_mult), 
+            make_divisible(512*width_mult), 1, alpha=self.bb_6.conv1.alpha, **kwargs)
+        self.bb_8 = SearchableBasicBlock(conv_func, make_divisible(512*width_mult), 
+            make_divisible(512*width_mult), 1, alpha=self.bb_7.conv1.alpha, **kwargs)
+        self.bb_9 = SearchableBasicBlock(conv_func, make_divisible(512*width_mult), 
+            make_divisible(512*width_mult), 1, alpha=self.bb_8.conv1.alpha, **kwargs)
+        self.bb_10 = SearchableBasicBlock(conv_func, make_divisible(512*width_mult), 
+            make_divisible(512*width_mult), 1, alpha=self.bb_9.conv1.alpha, **kwargs)
+        self.bb_11 = SearchableBasicBlock(conv_func, make_divisible(512*width_mult), 
+            make_divisible(512*width_mult), 1, alpha=self.bb_10.conv1.alpha, **kwargs)
+        self.bb_12 = SearchableBasicBlock(conv_func, make_divisible(512*width_mult), 
+            make_divisible(1024*width_mult), 2, alpha=self.bb_11.conv1.alpha, **kwargs)
+        self.bb_13 = SearchableBasicBlock(conv_func, make_divisible(1024*width_mult), 
+            make_divisible(1024*width_mult), 1, alpha=self.bb_12.conv1.alpha, **kwargs)
         
         # Final classifier
         self.pool = nn.AvgPool2d(int(input_size/(2**5)))
@@ -206,6 +220,8 @@ class SearchableMobileNetV1(nn.Module):
         return x[:, :, 0, 0]
 
 def plain_mobilenetv1(**kwargs):
+    kwargs.pop('found_model', None)
+    kwargs.pop('ft', None)
     return MobileNetV1(nn.Conv2d, **kwargs)
 
 def searchable_mobilenetv1(found_model=None, **kwargs):

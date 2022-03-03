@@ -22,7 +22,7 @@ model_names = sorted(name for name in models.__dict__
 
 def main():
     # Training settings
-    parser = argparse.ArgumentParser(description='PyTorch Visual Wake Words Search')
+    parser = argparse.ArgumentParser(description='PyTorch Visual Wake Words Fine-Tuning')
     parser.add_argument('-a', '--arch', metavar='ARCH', default='plain_mobilenetv1',
                         choices=model_names,
                         help='model architecture: ' +
@@ -54,8 +54,8 @@ def main():
                         help='random seed (default: 1)')
     parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                         help='how many batches to wait before logging training status')
-    parser.add_argument('--pretrained-model', type=str, default=None,
-                        help='Path to a pretrained model')
+    parser.add_argument('--found-model', type=str, default=None,
+                        help='path where the searched model is stored')
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -109,29 +109,9 @@ def main():
     
     # Build model, optimizer and lr scheduler
     print("=> creating model '{}'".format(args.arch))
-    model = models.__dict__[args.arch]().to(device)
-
-    # Check if pretrained model exists
-    if args.pretrained_model is not None:
-        print("=> using pre-trained model '{}'".format(args.pretrained_model))
-        model.load_state_dict(torch.load(args.pretrained_model))
-    else:
-        print("=> no pre-trained model found")
-
+    model = models.__dict__[args.arch](found_model=args.found_model, ft=True).to(device)
     optimizer = optim.Adam(model.parameters(), lr=args.lr,
                             weight_decay=1e-4)
-
-    # Dummy test step to get inital complexities of model
-    test(model, device, test_loader)
-    size_i = sum(model.size_dict.values()).clone().detach().cpu().numpy()
-    ops_i = sum(model.ops_dict.values()).clone().detach().cpu().numpy()
-    print(f"Initial size: {size_i:.3e} params\tInitial ops: {ops_i:.3e} OPs")
-    alive_ch_i = copy.deepcopy(model.alive_ch)
-    for k, v in alive_ch_i.items():
-        print(f"{k}:\t{int(v)+1} channels")
-    if args.eval_complexity:
-        print("Exit...")
-        return
 
     # Training
     for epoch in range(1, args.epochs + 1):
@@ -139,17 +119,9 @@ def main():
         test(model, device, test_loader)
         adjust_learning_rate(optimizer, epoch, args)
     
-    # Compute and print final size and ops
-    size_f = sum(model.size_dict.values()).clone().detach().cpu().numpy()
-    ops_f = sum(model.ops_dict.values()).clone().detach().cpu().numpy()
-    print(f"Final size: {size_f:.3e}/{size_i:.3e} parameters\tFinal ops: {ops_f:.3e}/{ops_i:.3e} OPs")
-    # Print learned alive channels
-    for k, v in model.alive_ch.items():
-        print(f"{k}:\t{int(v)+1}/{int(alive_ch_i[k])+1} channels")
-
-    # Save model
+    # Save model    
     torch.save(model.state_dict(), 
-        f"saved_models/srch_{args.arch}_target-{args.size_target:.1e}_cdops-{args.cd_ops:.1e}.pth.tar")
+        f"saved_models/ft_{args.arch}_target-{args.size_target:.1e}_cdops-{args.cd_ops:.1e}.pth.tar")
 
 def adjust_learning_rate(optimizer, epoch, args):
     if epoch == 21:
@@ -166,20 +138,12 @@ def train(args, model, device, train_loader, optimizer, epoch):
         optimizer.zero_grad()
         output = model(data.transpose(1,3).transpose(2,3))
         loss = nn.BCEWithLogitsLoss()(output, target)
-        # Compute size-complexity loss with constraint
-        loss_size = torch.abs(sum(model.size_dict.values()) - args.size_target)
-        loss_size *= args.cd_size
-        # Compute ops-complexity loss with constraint
-        loss_ops = sum(model.ops_dict.values())
-        loss_ops *= args.cd_ops
-        # Sum different losses
-        loss += loss_size + loss_ops
         loss.backward()
         optimizer.step()
         if batch_idx % args.log_interval == 0:
-            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tSize-Loss: {:.6f}\tOps-Loss: {:.6f}'.format(
+            print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
-                100. * batch_idx / len(train_loader), loss.item(), loss_size.item(), loss_ops.item()))
+                100. * batch_idx / len(train_loader), loss.item()))
             if args.dry_run:
                 break
 
@@ -195,7 +159,6 @@ def test(model, device, test_loader):
             test_loss += nn.BCEWithLogitsLoss()(output, target).item()  # sum up batch loss
             pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
             correct += pred.eq(target.argmax(dim=1, keepdim=True)).sum().item()
-
     test_loss /= len(test_loader.dataset)
 
     print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
