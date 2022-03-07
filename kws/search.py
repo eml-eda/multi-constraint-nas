@@ -56,6 +56,8 @@ def main():
                         help='random seed (default: 1)')
     parser.add_argument('--log-interval', type=int, default=100, metavar='N',
                         help='how many batches to wait before logging training status')
+    parser.add_argument('--pretrained-model', type=str, default=None,
+                        help='Path to a pretrained model')
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -125,6 +127,14 @@ def main():
 
     print("=> creating model '{}'".format(args.arch))
     model = models.__dict__[args.arch]().to(device)
+
+    # Check if pretrained model exists
+    if args.pretrained_model is not None:
+        print("=> using pre-trained model '{}'".format(args.pretrained_model))
+        model.load_state_dict(torch.load(args.pretrained_model))
+    else:
+        print("=> no pre-trained model found")
+
     optimizer = optim.Adam(model.parameters(), lr=args.lr,
                             weight_decay=1e-4)
 
@@ -151,10 +161,7 @@ def main():
         test_acc[str(epoch)] = test(model, device, test_loader, scope='Test')
         adjust_learning_rate(optimizer, epoch)
         if val_acc[str(epoch)] >= val_acc[str(best_epoch)]:
-            best_epoch = epoch
-            # Save model
-            torch.save(model.state_dict(), 
-                f"saved_models/srch_{args.arch}_target-{args.size_target:.1e}_cdops-{args.cd_ops:.1e}.pth.tar")
+            best_epoch = epoch    
     
     # Log results
     print(f"Best Val Acc: {val_acc[str(best_epoch)]:.2f}% @ Epoch {best_epoch}")
@@ -167,6 +174,10 @@ def main():
     # Print learned alive channels
     for k, v in model.alive_ch.items():
         print(f"{k}:\t{int(v)+1}/{int(alive_ch_i[k])+1} channels")
+
+    # Save model
+    torch.save(model.state_dict(), 
+        f"saved_models/srch_{args.arch}_target-{args.size_target:.1e}_cdops-{args.cd_ops:.1e}.pth.tar")
 
 def adjust_learning_rate(optimizer, epoch):
     if epoch < 50:

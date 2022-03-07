@@ -29,11 +29,14 @@ class SearchableConv2d(nn.Module):
         self.cout = outplane
         self.stride = kwargs.get('stride', 1)
         self.groups = kwargs.get('groups', 1)
+        self.last_fc = kwargs.pop('last_fc', False)
         if alpha is None:
             self.alpha = Parameter(torch.Tensor(outplane-1))
             self.alpha.data.fill_(1.0)
         else:
             self.alpha = alpha
+        # Freeze alpha if the current layer is the final classifier
+        self.alpha.requires_grad = not self.last_fc
         self.conv = nn.Conv2d(inplane, outplane, **kwargs)
         self.binarize = Binarize(th=0.5)
         # complexities
