@@ -9,8 +9,8 @@ pretrained_model="pretrained_model/warmup.pth.tar"
 if [[ "$3" == "search" ]]; then
     echo Search
     python search.py -a ${arch} \
-        --cd-size 5e-5 --size-target ${size_target} \
-        --cd-ops ${cd_ops} \
+        --cd-size 1e-4 --size-target ${size_target} \
+        --cd-ops ${cd_ops} --anneal-size \
         --pretrained-model ${pretrained_model} | tee log/srch_${arch}_${size_target}_${cd_ops}.log
 fi
 

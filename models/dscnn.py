@@ -27,10 +27,10 @@ def dw3x3(conv_func, in_planes, out_planes, stride=1, alpha=None, **kwargs):
                      padding=1, bias=False, groups=in_planes, **kwargs)
 
 # Wrapping fc with conv_func
-def fc(conv_func, in_planes, out_planes, stride=1, groups=1, **kwargs):
+def fc(conv_func, in_planes, out_planes, stride=1, groups=1, last_fc=False, **kwargs):
     "fc mapped to conv"
     return conv_func(in_planes, out_planes, kernel_size=1, groups=groups, stride=stride,
-                     padding=0, bias=True, **kwargs)
+                     padding=0, bias=True, last_fc=last_fc, **kwargs)
 
 class BasicBlock(nn.Module):
     def __init__(self, conv_func, inplanes, planes, stride=1, **kwargs):
@@ -135,7 +135,7 @@ class SearchableDsCNN(nn.Module):
         
         # Final classifier
         self.pool = nn.AvgPool2d((int(input_size[0]/2), int(input_size[1]/2)))
-        self.fc = fc(conv_func, 64, num_classes, **kwargs)
+        self.fc = fc(conv_func, 64, num_classes, last_fc=True, **kwargs)
 
         # Dictionaries with alive ch for each searched layer
         self.alive_ch = {}

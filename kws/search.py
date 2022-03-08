@@ -1,5 +1,6 @@
 import argparse
 import copy
+import math
 import sys
 sys.path.append('..')
 
@@ -16,6 +17,7 @@ from data_wrapper import KWSDataWrapper
 import get_dataset as kws_data
 import kws_util
 import models as models
+from utils import MovingAverage
 
 # Simply parse all models' names contained in models directory
 model_names = sorted(name for name in models.__dict__
@@ -44,6 +46,10 @@ def main():
                         help='complexity decay ops (default: 0.0)')
     parser.add_argument('--size-target', type=float, default=0, metavar='ST',
                         help='target size (default: 0)')
+    parser.add_argument('--adjust-target', action='store_true', default=False,
+                        help='Wheter to adjust size target depending on ops ema')
+    parser.add_argument('--anneal-size', action='store_true', default=False,
+                        help='Enable annealing of cd_size')
     parser.add_argument('--gamma', type=float, default=0.7, metavar='M',
                         help='Learning rate step gamma (default: 0.7)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
@@ -59,6 +65,7 @@ def main():
     parser.add_argument('--pretrained-model', type=str, default=None,
                         help='Path to a pretrained model')
     args = parser.parse_args()
+    print(args)
     use_cuda = not args.no_cuda and torch.cuda.is_available()
 
     torch.manual_seed(args.seed)
@@ -155,6 +162,11 @@ def main():
     test_acc = {}
     best_epoch = 0
     val_acc[str(best_epoch)] = 0.0
+    # Exponential Moving Average of size and ops
+    size_ema = MovingAverage()
+    ops_ema = MovingAverage()
+    # Store initial size target
+    size_target_i = copy.deepcopy(args.size_target)
     for epoch in range(1, args.epochs + 1):
         train(args, model, device, train_loader, optimizer, epoch)
         val_acc[str(epoch)] = test(model, device, val_loader, scope='Validation')
@@ -162,18 +174,37 @@ def main():
         adjust_learning_rate(optimizer, epoch)
         if val_acc[str(epoch)] >= val_acc[str(best_epoch)]:
             best_epoch = epoch    
+        
+        # Compute and print actual size and ops
+        size_f = sum(model.size_dict.values()).clone().detach().cpu().numpy()
+        size_ema.update(size_f)
+        ops_f = sum(model.ops_dict.values()).clone().detach().cpu().numpy()
+        ops_ema.update(ops_f)
+        print(f"Actual size: {size_f:.3e}/{size_i:.3e} parameters\tActual ops: {ops_f:.3e}/{ops_i:.3e} OPs")
+        print(f"Size EMA: {size_ema.value:.3e}\t Ops EMA: {ops_ema.value:.3e}")
+        # Print learned alive channels
+        for k, v in model.alive_ch.items():
+            print(f"{k}:\t{int(v)+1}/{int(alive_ch_i[k])+1} channels")
+
+        # Annealing of cd_ops
+        if args.anneal_size:
+            args.cd_size *= math.exp(-0.005)
+
+        # If enabled adjust args.size_target if ops_ema changes are too small
+        # Skip first 10 epoch
+        max_adjustment = size_target_i * 10 / 100
+        if args.adjust_target and epoch > 10:
+            th = ops_ema.value * 5 / 100 # 5%
+            if (ops_f < ops_ema.value + th) and (ops_f > ops_ema.value - th):
+                if (size_target_i - args.size_target) < max_adjustment: # Adjust   
+                    args.size_target *= 99/100 # 1% smaller
+                    print(f"Adjusted size_target to {args.size_target:.3e} parameters")
+                else:
+                    print(f"Max adjustment reached, final size_target: {args.size_target:.3e} parameters")
     
     # Log results
     print(f"Best Val Acc: {val_acc[str(best_epoch)]:.2f}% @ Epoch {best_epoch}")
     print(f"Test Acc: {test_acc[str(best_epoch)]:.2f}% @ Epoch {best_epoch}")
-
-    # Compute and print final size and ops
-    size_f = sum(model.size_dict.values()).clone().detach().cpu().numpy()
-    ops_f = sum(model.ops_dict.values()).clone().detach().cpu().numpy()
-    print(f"Final size: {size_f:.3e}/{size_i:.3e} parameters\tFinal ops: {ops_f:.3e}/{ops_i:.3e} OPs")
-    # Print learned alive channels
-    for k, v in model.alive_ch.items():
-        print(f"{k}:\t{int(v)+1}/{int(alive_ch_i[k])+1} channels")
 
     # Save model
     torch.save(model.state_dict(), 
@@ -203,6 +234,7 @@ def train(args, model, device, train_loader, optimizer, epoch):
 
         # Compute size-complexity loss with constraint
         loss_size = torch.abs(sum(model.size_dict.values()) - args.size_target)
+        #loss_size = sum(model.size_dict.values()) - args.size_target
         loss_size *= args.cd_size
         # Compute ops-complexity loss with constraint
         loss_ops = sum(model.ops_dict.values())

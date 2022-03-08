@@ -139,13 +139,13 @@ def main():
         test(model, device, test_loader)
         adjust_learning_rate(optimizer, epoch, args)
     
-    # Compute and print final size and ops
-    size_f = sum(model.size_dict.values()).clone().detach().cpu().numpy()
-    ops_f = sum(model.ops_dict.values()).clone().detach().cpu().numpy()
-    print(f"Final size: {size_f:.3e}/{size_i:.3e} parameters\tFinal ops: {ops_f:.3e}/{ops_i:.3e} OPs")
-    # Print learned alive channels
-    for k, v in model.alive_ch.items():
-        print(f"{k}:\t{int(v)+1}/{int(alive_ch_i[k])+1} channels")
+        # Compute and print final size and ops
+        size_f = sum(model.size_dict.values()).clone().detach().cpu().numpy()
+        ops_f = sum(model.ops_dict.values()).clone().detach().cpu().numpy()
+        print(f"Final size: {size_f:.3e}/{size_i:.3e} parameters\tFinal ops: {ops_f:.3e}/{ops_i:.3e} OPs")
+        # Print learned alive channels
+        for k, v in model.alive_ch.items():
+            print(f"{k}:\t{int(v)+1}/{int(alive_ch_i[k])+1} channels")
 
     # Save model
     torch.save(model.state_dict(), 
