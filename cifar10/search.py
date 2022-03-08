@@ -83,9 +83,18 @@ def main():
 
     trainset = datasets.CIFAR10('data', train=True, download=True,
                        transform=transform_train)
+    # Split dataset into train and validation
+    train_len = int(len(trainset) * 0.8)
+    val_len = len(trainset) - train_len
+    # Fix generator seed for reproducibility
+    data_gen = torch.Generator().manual_seed(args.seed)
+    train_dataset, val_dataset = torch.utils.data.random_split(trainset, [train_len, val_len], generator=data_gen)
+
+    train_loader = torch.utils.data.DataLoader(train_dataset, **train_kwargs)
+    val_loader = torch.utils.data.DataLoader(val_dataset, **test_kwargs)
+
     testset = datasets.CIFAR10('data', train=False, download=True,
                        transform=transform_test)
-    train_loader = torch.utils.data.DataLoader(trainset, **train_kwargs)
     test_loader = torch.utils.data.DataLoader(testset, **test_kwargs)
 
     print("=> creating model '{}'".format(args.arch))
@@ -104,7 +113,7 @@ def main():
     scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs)
 
     # Dummy test step to get inital complexities of model
-    test(model, device, test_loader)
+    test(model, device, test_loader, scope='Initial Dummy Test')
     size_i = sum(model.size_dict.values()).clone().detach().cpu().numpy()
     ops_i = sum(model.ops_dict.values()).clone().detach().cpu().numpy()
     print(f"Initial size: {size_i:.3e} params\tInitial ops: {ops_i:.3e} OPs")
@@ -117,16 +126,17 @@ def main():
 
     for epoch in range(1, args.epochs + 1):
         train(args, model, device, train_loader, optimizer, epoch)
-        test(model, device, test_loader)
+        test(model, device, val_loader, scope='Validation')
+        test(model, device, test_loader, scope='Test')
         scheduler.step()
     
-    # Compute and print final size and ops
-    size_f = sum(model.size_dict.values()).clone().detach().cpu().numpy()
-    ops_f = sum(model.ops_dict.values()).clone().detach().cpu().numpy()
-    print(f"Final size: {size_f:.3e}/{size_i:.3e} parameters\tFinal ops: {ops_f:.3e}/{ops_i:.3e} OPs")
-    # Print learned alive channels
-    for k, v in model.alive_ch.items():
-        print(f"{k}:\t{int(v)+1}/{int(alive_ch_i[k])+1} channels")
+        # Compute and print final size and ops
+        size_f = sum(model.size_dict.values()).clone().detach().cpu().numpy()
+        ops_f = sum(model.ops_dict.values()).clone().detach().cpu().numpy()
+        print(f"Final size: {size_f:.3e}/{size_i:.3e} parameters\tFinal ops: {ops_f:.3e}/{ops_i:.3e} OPs")
+        # Print learned alive channels
+        for k, v in model.alive_ch.items():
+            print(f"{k}:\t{int(v)+1}/{int(alive_ch_i[k])+1} channels")
 
     # Save model
     torch.save(model.state_dict(), 
@@ -156,7 +166,7 @@ def train(args, model, device, train_loader, optimizer, epoch):
             if args.dry_run:
                 break
 
-def test(model, device, test_loader):
+def test(model, device, test_loader, scope='Test'):
     model.eval()
     test_loss = 0
     correct = 0
@@ -170,8 +180,8 @@ def test(model, device, test_loader):
 
     test_loss /= len(test_loader.dataset)
 
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
-        test_loss, correct, len(test_loader.dataset),
+    print('\n{} set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+        scope, test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
 
 if __name__ == '__main__':

@@ -2,7 +2,10 @@
 
 #size_target=( 6.0e+04 4.0e+04 2.0e+04 )
 size_target=( 6.0e+04 )
-cd_ops=( 0.0e+00 1.0e-08 1.0e-07 1.0e-06 )
+#size_target=( 4.0e+04 )
+#size_target=( 2.0e+04 )
+#cd_ops=( 0.0e+00 1.0e-08 1.0e-07 1.0e-06 5.0e-06 )
+cd_ops=( 1.0e-07 1.0e-06 5.0e-06 )
 
 sz_skip=( 6.0e+04 )
 cdo_skip=( 0.0e+00 1.0e-07 )
