@@ -3,16 +3,16 @@
 size_target=$1
 cd_ops=$2
 
-cd_size=1e-5
+cd_size=5e-4
 
 arch="searchable_mobilenetv1"
 pretrained_model="pretrained_model/warmup.pth.tar"
 
 if [[ "$3" == "search" ]]; then
     echo Search
-    python search.py -a ${arch} \
+    python search.py -a ${arch} --early-stop 15 \
         --cd-size ${cd_size} --size-target ${size_target} \
-        --cd-ops ${cd_ops} --lr 1e-4 \
+        --cd-ops ${cd_ops} --lra 1e-3 \
         --pretrained-model ${pretrained_model} | tee log/srch_${arch}_${size_target}_${cd_ops}.log
 fi
 

@@ -38,6 +38,8 @@ def main():
                         help='Early-Stop patience (default: None)')
     parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                         help='learning rate (default: 0.001)')
+    parser.add_argument('--lra', type=float, default=0.0001,
+                        help='learning rate (default: 0.0001)')
     parser.add_argument('--cd-size', type=float, default=0.0, metavar='CD',
                         help='complexity decay size (default: 0.0)')
     parser.add_argument('--cd-ops', type=float, default=0.0, metavar='CD',
@@ -132,8 +134,17 @@ def main():
     else:
         print("=> no pre-trained model found")
 
-    optimizer = optim.Adam(model.parameters(), lr=args.lr,
-                            weight_decay=1e-4)
+    # Group model/architecture parameters
+    params, alpha_params = [], []
+    for name, param in model.named_parameters():
+        if 'alpha' in name:
+            alpha_params += [param]
+        else:
+            params += [param]
+
+    optimizer = optim.Adam(params, lr=args.lr, weight_decay=1e-4)
+    #arch_optimizer = optim.SGD(alpha_params, lr=args.lra, momentum=0.9)
+    arch_optimizer = optim.Adam(alpha_params, lr=args.lra)
 
     # Dummy test step to get inital complexities of model
     test(model, device, test_loader, scope='Initial Dummy Test')
@@ -152,7 +163,7 @@ def main():
     val_acc_best = 0
     epoch_wout_improve = 0
     for epoch in range(1, args.epochs + 1):
-        train(args, model, device, train_loader, optimizer, epoch)
+        train(args, model, device, train_loader, optimizer, arch_optimizer, epoch)
         val_acc = test(model, device, val_loader, scope='Val')
         if args.early_stop is not None:
             if val_acc > val_acc_best and epoch >= 10:
@@ -176,10 +187,11 @@ def main():
         # Print learned alive channels
         for k, v in model.alive_ch.items():
             print(f"{k}:\t{int(v)+1}/{int(alive_ch_i[k])+1} channels")
-        
-        if epoch_wout_improve >= args.early_stop:
-            print("Early stopping...")
-            break
+
+        if args.early_stop is not None: 
+            if epoch_wout_improve >= args.early_stop:
+                print("Early stopping...")
+                break
 
     # Save model
     if args.early_stop is None:
@@ -194,11 +206,12 @@ def adjust_learning_rate(optimizer, epoch, args):
     for param_group in optimizer.param_groups:
         param_group['lr'] = args.lr
 
-def train(args, model, device, train_loader, optimizer, epoch):
+def train(args, model, device, train_loader, optimizer, arch_optimizer, epoch):
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
+        arch_optimizer.zero_grad()
         output = model(data.transpose(1,3).transpose(2,3))
         loss = nn.BCEWithLogitsLoss()(output, target)
         # Compute size-complexity loss with constraint
@@ -211,6 +224,7 @@ def train(args, model, device, train_loader, optimizer, epoch):
         loss += loss_size + loss_ops
         loss.backward()
         optimizer.step()
+        arch_optimizer.step()
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tSize-Loss: {:.6f}\tOps-Loss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
