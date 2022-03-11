@@ -30,7 +30,9 @@ def main():
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--epochs', type=int, default=500, metavar='N',
-                        help='number of epochs to train (default: 14)')
+                        help='number of epochs to train (default: 500)')
+    parser.add_argument('--early-stop', type=int, default=None,
+                        help='Early-Stop patience (default: None)')
     parser.add_argument('--lr', type=float, default=0.1, metavar='LR',
                         help='learning rate (default: 1.0)')
     parser.add_argument('--cd-size', type=float, default=0.0, metavar='CD',
@@ -84,7 +86,7 @@ def main():
     trainset = datasets.CIFAR10('data', train=True, download=True,
                        transform=transform_train)
     # Split dataset into train and validation
-    train_len = int(len(trainset) * 0.8)
+    train_len = int(len(trainset) * 0.9)
     val_len = len(trainset) - train_len
     # Fix generator seed for reproducibility
     data_gen = torch.Generator().manual_seed(args.seed)
@@ -124,9 +126,25 @@ def main():
         print("Exit...")
         return
 
+    # Training
+    val_acc = 0
+    val_acc_best = 0
+    epoch_wout_improve = 0
     for epoch in range(1, args.epochs + 1):
         train(args, model, device, train_loader, optimizer, epoch)
-        test(model, device, val_loader, scope='Validation')
+        val_acc = test(model, device, val_loader, scope='Validation')
+        if args.early_stop is not None:
+            if val_acc > val_acc_best and epoch >= 10:
+                val_acc_best = val_acc
+                epoch_wout_improve = 0
+                # Save model
+                print("=> saving new best model")
+                torch.save(model.state_dict(), 
+                    f"saved_models/srch_{args.arch}_target-{args.size_target:.1e}_cdops-{args.cd_ops:.1e}.pth.tar")
+            else:
+                epoch_wout_improve += 1 if epoch > 10 else 0
+                print(f"No improvement in {epoch_wout_improve} epochs")
+                print(f"Keep going for {args.early_stop - epoch_wout_improve} epochs")
         test(model, device, test_loader, scope='Test')
         scheduler.step()
     
@@ -137,10 +155,16 @@ def main():
         # Print learned alive channels
         for k, v in model.alive_ch.items():
             print(f"{k}:\t{int(v)+1}/{int(alive_ch_i[k])+1} channels")
+        
+        if args.early_stop is not None: 
+            if epoch_wout_improve >= args.early_stop:
+                print("Early stopping...")
+                break
 
     # Save model
-    torch.save(model.state_dict(), 
-        f"saved_models/srch_{args.arch}_target-{args.size_target:.1e}_cdops-{args.cd_ops:.1e}.pth.tar")
+    if args.early_stop is None:
+        torch.save(model.state_dict(), 
+            f"saved_models/srch_{args.arch}_target-{args.size_target:.1e}_cdops-{args.cd_ops:.1e}.pth.tar")
 
 def train(args, model, device, train_loader, optimizer, epoch):
     model.train()
@@ -180,9 +204,11 @@ def test(model, device, test_loader, scope='Test'):
 
     test_loss /= len(test_loader.dataset)
 
-    print('\n{} set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+    print('\n{} set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
         scope, test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
+
+    return 100. * correct / len(test_loader.dataset)
 
 if __name__ == '__main__':
     main()
