@@ -3,7 +3,7 @@
 size_target=$1
 cd_ops=$2
 
-cd_size=5e-4
+cd_size=1e-4
 
 arch="searchable_mobilenetv1"
 pretrained_model="pretrained_model/warmup.pth.tar"

@@ -26,14 +26,22 @@ def conv1x1(conv_func, in_planes, out_planes, stride=1, **kwargs):
 # Wrapping depthwise conv with conv_func
 def dw3x3(conv_func, in_planes, out_planes, stride=1, alpha=None, **kwargs):
     "3x3 convolution dw with padding"
-    return conv_func(in_planes, out_planes, alpha=alpha, kernel_size=3, stride=stride,
-                     padding=1, bias=False, groups=in_planes, **kwargs)
+    if conv_func != nn.Conv2d:
+        return conv_func(in_planes, out_planes, alpha=alpha, kernel_size=3, stride=stride,
+                        padding=1, bias=False, groups=in_planes, **kwargs)
+    else:
+        return conv_func(in_planes, out_planes, kernel_size=3, stride=stride,
+                        padding=1, bias=False, groups=in_planes, **kwargs)
 
 # Wrapping fc with conv_func
 def fc(conv_func, in_planes, out_planes, stride=1, groups=1, last_fc=False, **kwargs):
     "fc mapped to conv"
-    return conv_func(in_planes, out_planes, kernel_size=1, groups=groups, stride=stride,
-                     padding=0, bias=True, last_fc=last_fc, **kwargs)
+    if conv_func != nn.Conv2d:
+        return conv_func(in_planes, out_planes, kernel_size=1, groups=groups, stride=stride,
+                        padding=0, bias=True, last_fc=last_fc, **kwargs)
+    else:
+        return conv_func(in_planes, out_planes, kernel_size=1, groups=groups, stride=stride,
+                        padding=0, bias=True, **kwargs)
 
 class BasicBlock(nn.Module):
     def __init__(self, conv_func, inplanes, planes, stride=1, **kwargs):
@@ -132,7 +140,8 @@ class MobileNetV1(nn.Module):
         x = self.pool(x)
         x = self.fc(x)
 
-        return x[:, :, 0, 0]
+        #return x[:, :, 0, 0]
+        return x
 
 class SearchableMobileNetV1(nn.Module):
     def __init__(self, conv_func, input_size=96, num_classes=2, width_mult=.25, **kwargs):

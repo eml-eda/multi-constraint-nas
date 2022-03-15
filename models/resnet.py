@@ -166,6 +166,7 @@ class SearchableResNet8(nn.Module):
                     m.bias.data.zero_()
     
     def forward(self, x):
+        import pdb; pdb.set_trace()
         x, alpha_0, size, ops = self.conv0(x)
         x = self.bn0(x)
         x = F.relu(x)

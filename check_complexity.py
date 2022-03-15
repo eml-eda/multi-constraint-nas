@@ -16,6 +16,8 @@ print(args)
 model_name = str(args.arch).split('searchable')[1].split('_')[1]
 if model_name == 'dscnn':
     rnd_input = torch.randn(2, 1, 49, 10)
+elif model_name == 'resnet8':
+    rnd_input = torch.randn(2, 3, 32, 32)
 else:
     raise ValueError(f'Model {model_name} not supported')
 
