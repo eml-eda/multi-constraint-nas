@@ -38,6 +38,8 @@ def main():
                         help='input batch size for testing (default: 1000)')
     parser.add_argument('--epochs', type=int, default=200, metavar='N',
                         help='number of epochs to train (default: 200)')
+    parser.add_argument('--early-stop', type=int, default=None,
+                        help='Early-Stop patience (default: None)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                         help='learning rate (default: 0.01)')
     parser.add_argument('--cd-size', type=float, default=0.0, metavar='CD',
@@ -162,6 +164,7 @@ def main():
     test_acc = {}
     best_epoch = 0
     val_acc[str(best_epoch)] = 0.0
+    epoch_wout_improve = 0
     # Exponential Moving Average of size and ops
     size_ema = MovingAverage()
     ops_ema = MovingAverage()
@@ -170,10 +173,20 @@ def main():
     for epoch in range(1, args.epochs + 1):
         train(args, model, device, train_loader, optimizer, epoch)
         val_acc[str(epoch)] = test(model, device, val_loader, scope='Validation')
+        if args.early_stop is not None:
+            if val_acc[str(epoch)] >= val_acc[str(best_epoch)] and epoch >= 10:
+                best_epoch = epoch
+                epoch_wout_improve = 0
+                # Save model
+                print("=> saving new best model")
+                torch.save(model.state_dict(), 
+                    f"saved_models/srch_{args.arch}_target-{args.size_target:.1e}_cdops-{args.cd_ops:.1e}.pth.tar")
+            else:
+                epoch_wout_improve += 1 if epoch > 10 else 0
+                print(f"No improvement in {epoch_wout_improve} epochs")
+                print(f"Keep going for {args.early_stop - epoch_wout_improve} epochs")
         test_acc[str(epoch)] = test(model, device, test_loader, scope='Test')
-        adjust_learning_rate(optimizer, epoch)
-        if val_acc[str(epoch)] >= val_acc[str(best_epoch)]:
-            best_epoch = epoch    
+        adjust_learning_rate(optimizer, epoch)    
         
         # Compute and print actual size and ops
         size_f = sum(model.size_dict.values()).clone().detach().cpu().numpy()
@@ -185,6 +198,11 @@ def main():
         # Print learned alive channels
         for k, v in model.alive_ch.items():
             print(f"{k}:\t{int(v)+1}/{int(alive_ch_i[k])+1} channels")
+
+        if args.early_stop is not None: 
+            if epoch_wout_improve >= args.early_stop:
+                print("Early stopping...")
+                break
 
         # Annealing of cd_ops
         if args.anneal_size:
@@ -207,8 +225,9 @@ def main():
     print(f"Test Acc: {test_acc[str(best_epoch)]:.2f}% @ Epoch {best_epoch}")
 
     # Save model
-    torch.save(model.state_dict(), 
-        f"saved_models/srch_{args.arch}_target-{args.size_target:.1e}_cdops-{args.cd_ops:.1e}.pth.tar")
+    if args.early_stop is None:
+        torch.save(model.state_dict(), 
+            f"saved_models/srch_{args.arch}_target-{args.size_target:.1e}_cdops-{args.cd_ops:.1e}.pth.tar")
 
 def adjust_learning_rate(optimizer, epoch):
     if epoch < 50:
