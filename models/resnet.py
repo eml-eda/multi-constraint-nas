@@ -9,7 +9,7 @@ from models import search_module as sm
 import utils
 
 __all__ = [
-    'plain_resnet8', 'searchable_resnet8'
+    'plain_resnet8', 'searchable_resnet8', 'learned_resnet8',
 ]
 
 # Wrapping conv with conv_func
@@ -111,7 +111,96 @@ class ResNet8(nn.Module):
 
         # Final classifier
         x = self.avgpool(x) 
-        x = self.fc(x)[:, :, 0, 0]
+        x = self.fc(x)#[:, :, 0, 0]
+
+        return x
+
+class LearnedResNet8(nn.Module):
+    def __init__(self, conv_func, learned_ch, input_size=32, num_classes=10, **kwargs):
+        self.inplanes = 16
+        self.conv_func = conv_func
+        super().__init__()
+        # Input layer
+        self.conv0 = conv_func(3, learned_ch[0], 3, 1, padding=1, bias=False)
+        self.bn0 = nn.BatchNorm2d(learned_ch[0])
+        
+        # First stack - bb0
+        self.bb0_conv1 = conv_func(learned_ch[0], learned_ch[1], 3, 1, padding=1, bias=False)
+        self.bb0_bn1 = nn.BatchNorm2d(learned_ch[1])
+        self.bb0_conv2 = conv_func(learned_ch[1], learned_ch[2], 3, 1, padding=1, bias=False)
+        self.bb0_bn2 = nn.BatchNorm2d(learned_ch[2])
+        self.bb0_res = conv_func(learned_ch[0], learned_ch[2], 1, 1, padding=0, bias=False) 
+        
+        # Second stack - bb1
+        self.bb1_conv1 = conv_func(learned_ch[2], learned_ch[3], 3, 2, padding=1, bias=False)
+        self.bb1_bn1 = nn.BatchNorm2d(learned_ch[3])
+        self.bb1_conv2 = conv_func(learned_ch[3], learned_ch[4], 3, 1, padding=1, bias=False)
+        self.bb1_bn2 = nn.BatchNorm2d(learned_ch[4])
+        self.bb1_res = conv_func(learned_ch[2], learned_ch[4], 1, 2, padding=0, bias=False) 
+        
+        # Third stack - bb2
+        self.bb2_conv1 = conv_func(learned_ch[4], learned_ch[5], 3, 2, padding=1, bias=False)
+        self.bb2_bn1 = nn.BatchNorm2d(learned_ch[5])
+        self.bb2_conv2 = conv_func(learned_ch[5], learned_ch[6], 3, 1, padding=1, bias=False)
+        self.bb2_bn2 = nn.BatchNorm2d(learned_ch[6])
+        self.bb2_res = conv_func(learned_ch[4], learned_ch[6], 1, 2, padding=0, bias=False)
+        
+        # Final classifier
+        self.avgpool = nn.AvgPool2d(kernel_size=8)
+        self.fc = conv_func(learned_ch[6], num_classes, 1, 1)
+
+        # Init
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                if m.weight is not None:
+                    m.weight.data.fill_(1)
+                if m.bias is not None:
+                    m.bias.data.zero_()
+    
+    def forward(self, x):
+        x = self.conv0(x)
+        x = self.bn0(x)
+        x = F.relu(x)
+
+        # First stack - bb0
+        x0 = x
+        x0_res = self.bb0_res(x0)
+        x = self.bb0_conv1(x0)
+        x = self.bb0_bn1(x)
+        x = F.relu(x)
+        x = self.bb0_conv2(x)
+        x = self.bb0_bn2(x)
+        x = x + x0_res
+        x = F.relu(x)
+
+        # Second stack - bb1
+        x1 = x
+        x1_res = self.bb1_res(x1)
+        x = self.bb1_conv1(x1)
+        x = self.bb1_bn1(x)
+        x = F.relu(x)
+        x = self.bb1_conv2(x)
+        x = self.bb1_bn2(x)
+        x = x + x1_res
+        x = F.relu(x)
+
+        # Third stack - bb2
+        x2 = x
+        x2_res = self.bb2_res(x2)
+        x = self.bb2_conv1(x2)
+        x = self.bb2_bn1(x)
+        x = F.relu(x)
+        x = self.bb2_conv2(x)
+        x = self.bb2_bn2(x)
+        x = x + x2_res
+        x = F.relu(x)
+
+        # Final classifier
+        x = self.avgpool(x) 
+        x = self.fc(x)
 
         return x
 
@@ -210,6 +299,9 @@ class SearchableResNet8(nn.Module):
 
 def plain_resnet8(**kwargs):
     return ResNet8(nn.Conv2d, **kwargs)
+
+def learned_resnet8(learned_ch, **kwargs):
+    return LearnedResNet8(nn.Conv2d, learned_ch, **kwargs)
 
 def searchable_resnet8(found_model=None, **kwargs):
     ft = kwargs.pop('ft', False)
