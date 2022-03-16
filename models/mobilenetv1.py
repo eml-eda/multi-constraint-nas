@@ -11,7 +11,7 @@ from models import search_module as sm
 import utils
 
 __all__ = [
-    'plain_mobilenetv1', 'searchable_mobilenetv1'
+    'plain_mobilenetv1', 'searchable_mobilenetv1', 'learned_mobilenetv1',
 ]
 
 def make_divisible(x, divisible_by=8):
@@ -143,6 +143,72 @@ class MobileNetV1(nn.Module):
         #return x[:, :, 0, 0]
         return x
 
+class LearnedMobileNetV1(nn.Module):
+    def __init__(self, conv_func, learned_ch, input_size=96, num_classes=2, width_mult=.25, **kwargs):
+        self.conv_func = conv_func
+        super().__init__()
+        # Input layer
+        self.input_layer = conv_func(3, learned_ch[0], kernel_size=3, stride=2, padding=1, bias=False, groups=1, **kwargs)
+        self.bn = nn.BatchNorm2d(learned_ch[0])
+
+        # Backbone
+        self.bb_1 = BasicBlock(conv_func, learned_ch[0], learned_ch[1], 1, **kwargs)
+        self.bb_2 = BasicBlock(conv_func, learned_ch[1], learned_ch[2], 2, **kwargs)
+        self.bb_3 = BasicBlock(conv_func, learned_ch[2], learned_ch[3], 1, **kwargs)
+        self.bb_4 = BasicBlock(conv_func, learned_ch[3], learned_ch[4], 2, **kwargs)
+        self.bb_5 = BasicBlock(conv_func, learned_ch[4], learned_ch[5], 1, **kwargs)
+        self.bb_6 = BasicBlock(conv_func, learned_ch[5], learned_ch[6], 2, **kwargs)
+        self.bb_7 = BasicBlock(conv_func, learned_ch[6], learned_ch[7], 1, **kwargs)
+        self.bb_8 = BasicBlock(conv_func, learned_ch[7], learned_ch[8], 1, **kwargs)
+        self.bb_9 = BasicBlock(conv_func, learned_ch[8], learned_ch[9], 1, **kwargs)
+        self.bb_10 = BasicBlock(conv_func, learned_ch[9], learned_ch[10], 1, **kwargs)
+        self.bb_11 = BasicBlock(conv_func, learned_ch[10], learned_ch[11], 1, **kwargs)
+        self.bb_12 = BasicBlock(conv_func, learned_ch[11], learned_ch[12], 2, **kwargs)
+        self.bb_13 = BasicBlock(conv_func, learned_ch[12], learned_ch[13], 1, **kwargs)
+        
+        # Final classifier
+        self.pool = nn.AvgPool2d(int(input_size/(2**5)))
+        self.fc = fc(conv_func, learned_ch[13], num_classes, **kwargs)
+
+        # Init
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+            elif isinstance(m, nn.BatchNorm2d):
+                if m.weight is not None:
+                    m.weight.data.fill_(1)
+                if m.bias is not None:
+                    m.bias.data.zero_()
+    
+    def forward(self, x):
+        # Input Layer
+        x = self.input_layer(x)
+        x = self.bn(x)
+        x = F.relu(x)
+
+        # Backbone
+        x = self.bb_1(x)
+        x = self.bb_2(x)
+        x = self.bb_3(x)
+        x = self.bb_4(x)
+        x = self.bb_5(x)
+        x = self.bb_6(x)
+        x = self.bb_7(x)
+        x = self.bb_8(x)
+        x = self.bb_9(x)
+        x = self.bb_10(x)
+        x = self.bb_11(x)
+        x = self.bb_12(x)
+        x = self.bb_13(x)
+
+        # Final classifier
+        x = self.pool(x)
+        x = self.fc(x)
+
+        #return x[:, :, 0, 0]
+        return x
+
 class SearchableMobileNetV1(nn.Module):
     def __init__(self, conv_func, input_size=96, num_classes=2, width_mult=.25, **kwargs):
         self.conv_func = conv_func
@@ -232,6 +298,11 @@ def plain_mobilenetv1(**kwargs):
     kwargs.pop('found_model', None)
     kwargs.pop('ft', None)
     return MobileNetV1(nn.Conv2d, **kwargs)
+
+def learned_mobilenetv1(learned_ch, **kwargs):
+    kwargs.pop('found_model', None)
+    kwargs.pop('ft', None)
+    return LearnedMobileNetV1(nn.Conv2d, learned_ch, **kwargs)
 
 def searchable_mobilenetv1(found_model=None, **kwargs):
     ft = kwargs.pop('ft', False)
