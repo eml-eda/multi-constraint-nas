@@ -1,3 +1,21 @@
+#*----------------------------------------------------------------------------*
+#* Copyright (C) 2022 Politecnico di Torino, Italy                            *
+#* SPDX-License-Identifier: Apache-2.0                                        *
+#*                                                                            *
+#* Licensed under the Apache License, Version 2.0 (the "License");            *
+#* you may not use this file except in compliance with the License.           *
+#* You may obtain a copy of the License at                                    *
+#*                                                                            *
+#* http://www.apache.org/licenses/LICENSE-2.0                                 *
+#*                                                                            *
+#* Unless required by applicable law or agreed to in writing, software        *
+#* distributed under the License is distributed on an "AS IS" BASIS,          *
+#* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   *
+#* See the License for the specific language governing permissions and        *
+#* limitations under the License.                                             *
+#*                                                                            *
+#* Author:  Matteo Risso <matteo.risso@polito.it>                             *
+#*----------------------------------------------------------------------------*
 import argparse
 import copy
 import sys
@@ -172,7 +190,7 @@ def main():
                 # Save model
                 print("=> saving new best model")
                 torch.save(model.state_dict(), 
-                    f"saved_models/srch_{args.arch}_target-{args.size_target:.1e}_cdops-{args.cd_ops:.1e}.pth.tar")
+                    f"saved_models/srch_{args.arch}_target-{args.size_target:.2e}_cdops-{args.cd_ops:.2e}.pth.tar")
             else:
                 epoch_wout_improve += 1 if epoch > 10 else 0
                 print(f"No improvement in {epoch_wout_improve} epochs")
@@ -196,7 +214,7 @@ def main():
     # Save model
     if args.early_stop is None:
         torch.save(model.state_dict(), 
-            f"saved_models/srch_{args.arch}_target-{args.size_target:.1e}_cdops-{args.cd_ops:.1e}.pth.tar")
+            f"saved_models/srch_{args.arch}_target-{args.size_target:.2e}_cdops-{args.cd_ops:.2e}.pth.tar")
 
 def adjust_learning_rate(optimizer, epoch, args):
     if epoch == 21:

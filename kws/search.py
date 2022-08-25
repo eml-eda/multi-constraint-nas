@@ -1,3 +1,21 @@
+#*----------------------------------------------------------------------------*
+#* Copyright (C) 2022 Politecnico di Torino, Italy                            *
+#* SPDX-License-Identifier: Apache-2.0                                        *
+#*                                                                            *
+#* Licensed under the Apache License, Version 2.0 (the "License");            *
+#* you may not use this file except in compliance with the License.           *
+#* You may obtain a copy of the License at                                    *
+#*                                                                            *
+#* http://www.apache.org/licenses/LICENSE-2.0                                 *
+#*                                                                            *
+#* Unless required by applicable law or agreed to in writing, software        *
+#* distributed under the License is distributed on an "AS IS" BASIS,          *
+#* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   *
+#* See the License for the specific language governing permissions and        *
+#* limitations under the License.                                             *
+#*                                                                            *
+#* Author:  Matteo Risso <matteo.risso@polito.it>                             *
+#*----------------------------------------------------------------------------*
 import argparse
 import copy
 import math
@@ -42,6 +60,8 @@ def main():
                         help='Early-Stop patience (default: None)')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR',
                         help='learning rate (default: 0.01)')
+    parser.add_argument('--lra', type=float, default=0.0005,
+                        help='learning rate (default: 0.0005)')
     parser.add_argument('--cd-size', type=float, default=0.0, metavar='CD',
                         help='complexity decay size (default: 0.0)')
     parser.add_argument('--cd-ops', type=float, default=0.0, metavar='CD',
@@ -144,8 +164,17 @@ def main():
     else:
         print("=> no pre-trained model found")
 
-    optimizer = optim.Adam(model.parameters(), lr=args.lr,
+    # Group model/architecture parameters
+    params, alpha_params = [], []
+    for name, param in model.named_parameters():
+        if 'alpha' in name:
+            alpha_params += [param]
+        else:
+            params += [param]
+
+    optimizer = optim.Adam(params, lr=args.lr,
                             weight_decay=1e-4)
+    arch_optimizer = optim.Adam(alpha_params, lr=args.lra)
 
     # Dummy test step to get inital complexities of model
     test(model, device, test_loader)
@@ -171,7 +200,7 @@ def main():
     # Store initial size target
     size_target_i = copy.deepcopy(args.size_target)
     for epoch in range(1, args.epochs + 1):
-        train(args, model, device, train_loader, optimizer, epoch)
+        train(args, model, device, train_loader, optimizer, arch_optimizer, epoch)
         val_acc[str(epoch)] = test(model, device, val_loader, scope='Validation')
         if args.early_stop is not None:
             if val_acc[str(epoch)] >= val_acc[str(best_epoch)] and epoch >= 10:
@@ -241,11 +270,12 @@ def adjust_learning_rate(optimizer, epoch):
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
-def train(args, model, device, train_loader, optimizer, epoch):
+def train(args, model, device, train_loader, optimizer, arch_optimizer, epoch):
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device).squeeze(0), target.to(device).squeeze(0)
         optimizer.zero_grad()
+        arch_optimizer.zero_grad()
 
         # compute output
         output = model(data.transpose(1,3).transpose(2,3))
@@ -262,6 +292,7 @@ def train(args, model, device, train_loader, optimizer, epoch):
         loss += loss_size + loss_ops
         loss.backward()
         optimizer.step()
+        arch_optimizer.step()
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tSize-Loss: {:.6f}\tOps-Loss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),

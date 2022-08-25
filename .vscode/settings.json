@@ -16,7 +16,8 @@
         "titleBar.activeBackground": "#6a040f",
         "titleBar.activeForeground": "#e7e7e7",
         "titleBar.inactiveBackground": "#6a040f99",
-        "titleBar.inactiveForeground": "#e7e7e799"
+        "titleBar.inactiveForeground": "#e7e7e799",
+        "commandCenter.border": "#e7e7e799"
     },
     "peacock.remoteColor": "6a040f",
     "python.linting.pylintEnabled": true,
