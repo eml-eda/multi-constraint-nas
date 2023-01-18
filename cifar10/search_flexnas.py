@@ -9,9 +9,6 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from flexnas.methods import PIT
-import pytorch_benchmarks.image_classification as icl
-from pytorch_benchmarks.utils import AverageMeter, seed_all, accuracy, CheckPoint, EarlyStopping
-
 import models as models
 
 # Simply parse all models' names contained in models directory
