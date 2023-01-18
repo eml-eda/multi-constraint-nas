@@ -1,0 +1,3 @@
+[submodule "flexnas"]
+	path = flexnas
+	url = git@github.com:eml-eda/flexnas.git

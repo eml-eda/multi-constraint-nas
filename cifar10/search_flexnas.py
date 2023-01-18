@@ -12,164 +12,112 @@ from flexnas.methods import PIT
 import pytorch_benchmarks.image_classification as icl
 from pytorch_benchmarks.utils import AverageMeter, seed_all, accuracy, CheckPoint, EarlyStopping
 
+import models as models
 
-# Definition of evaluation function
-def evaluate(
-        search: bool,
-        model: nn.Module,
-        criterion: nn.Module,
-        data: DataLoader,
-        device: torch.device,
-        reg_strength: torch.Tensor = torch.tensor(0.)) -> Dict[str, float]:
-    model.eval()
-    avgacc = AverageMeter('6.2f')
-    avgloss = AverageMeter('2.5f')
-    avglosstask = AverageMeter('2.5f')
-    avglossreg = AverageMeter('2.5f')
-    step = 0
-    with torch.no_grad():
-        for audio, target in data:
-            step += 1
-            audio, target = audio.to(device), target.to(device)
-            output = model(audio)
-            loss_task = criterion(output, target)
-            if search:
-                loss_reg = reg_strength * model.get_regularization_loss()
-                loss = loss_task + loss_reg
-            else:
-                loss = loss_task
-                loss_reg = 0.
-            acc_val = accuracy(output, target, topk=(1,))
-            avgacc.update(acc_val[0], audio.size(0))
-            avgloss.update(loss, audio.size(0))
-            avglosstask.update(loss_task, audio.size(0))
-            avglossreg.update(loss_reg, audio.size(0))
-        final_metrics = {
-            'loss': avgloss.get(),
-            'loss_task': avglosstask.get(),
-            'loss_reg': avglossreg.get(),
-            'acc': avgacc.get(),
-        }
-    return final_metrics
+# Simply parse all models' names contained in models directory
+model_names = sorted(name for name in models.__dict__
+    if name.islower() and not name.startswith("__")
+    and callable(models.__dict__[name]))
 
+def main():
+    # Training settings
+    parser = argparse.ArgumentParser(description='PyTorch Cifar10 Search')
+    parser.add_argument('-a', '--arch', metavar='ARCH', default='plain_resnet8',
+                        choices=model_names,
+                        help='model architecture: ' +
+                            ' | '.join(model_names) +
+                            ' (default: plain_resnet8)')
+    parser.add_argument('--batch-size', type=int, default=128, metavar='N',
+                        help='input batch size for training (default: 128)')
+    parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
+                        help='input batch size for testing (default: 1000)')
+    parser.add_argument('--epochs', type=int, default=500, metavar='N',
+                        help='number of epochs to train (default: 500)')
+    parser.add_argument('--early-stop', type=int, default=None,
+                        help='Early-Stop patience (default: None)')
+    parser.add_argument('--lr', type=float, default=0.1, metavar='LR',
+                        help='learning rate (default: 1.0)')
+    parser.add_argument('--cd-size', type=float, default=0.0, metavar='CD',
+                        help='complexity decay size (default: 0.0)')
+    parser.add_argument('--cd-ops', type=float, default=0.0, metavar='CD',
+                        help='complexity decay ops (default: 0.0)')
+    parser.add_argument('--size-target', type=float, default=0, metavar='ST',
+                        help='target size (default: 0)')
+    parser.add_argument('--gamma', type=float, default=0.7, metavar='M',
+                        help='Learning rate step gamma (default: 0.7)')
+    parser.add_argument('--no-cuda', action='store_true', default=False,
+                        help='disables CUDA training')
+    parser.add_argument('--eval-complexity', action='store_true', default=False,
+                        help='Evaluate complexity of initial model and exit')
+    parser.add_argument('--dry-run', action='store_true', default=False,
+                        help='quickly check a single pass')
+    parser.add_argument('--seed', type=int, default=1, metavar='S',
+                        help='random seed (default: 1)')
+    parser.add_argument('--log-interval', type=int, default=10, metavar='N',
+                        help='how many batches to wait before logging training status')
+    parser.add_argument('--pretrained-model', type=str, default=None,
+                        help='Path to a pretrained model')
+    args = parser.parse_args()
+    use_cuda = not args.no_cuda and torch.cuda.is_available()
 
-# Definition of the function to train for one epoch
-def train_one_epoch(
-        epoch: int,
-        search: bool,
-        model: nn.Module,
-        criterion: nn.Module,
-        optimizer: torch.optim.Optimizer,
-        train_dl: DataLoader,
-        val_dl: DataLoader,
-        test_dl: DataLoader,
-        device: torch.device,
-        reg_strength: torch.Tensor = torch.tensor(0.)) -> Dict[str, float]:
-    model.train()
-    avgacc = AverageMeter('6.2f')
-    avgloss = AverageMeter('2.5f')
-    avglosstask = AverageMeter('2.5f')
-    avglossreg = AverageMeter('2.5f')
-    step = 0
-    with tqdm(total=len(train_dl), unit="batch") as tepoch:
-        tepoch.set_description(f"Epoch {epoch+1}")
-        for audio, target in train_dl:
-            step += 1
-            tepoch.update(1)
-            audio, target = audio.to(device), target.to(device)
-            output = model(audio)
-            loss_task = criterion(output, target)
-            if search:
-                loss_reg = reg_strength * model.get_regularization_loss()
-                loss = loss_task + loss_reg
-            else:
-                loss = loss_task
-                loss_reg = 0
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            acc_val = accuracy(output, target, topk=(1,))
-            avgacc.update(acc_val[0], audio.size(0))
-            avgloss.update(loss, audio.size(0))
-            avglosstask.update(loss_task, audio.size(0))
-            avglossreg.update(loss_reg, audio.size(0))
-            if step % 100 == 99:
-                tepoch.set_postfix({'loss': avgloss,
-                                    'loss_task': avglosstask,
-                                    'loss_reg': avglossreg,
-                                    'acc': avgacc})
-        val_metrics = evaluate(search, model, criterion, val_dl, device, reg_strength)
-        val_metrics = {'val_' + k: v for k, v in val_metrics.items()}
-        test_metrics = evaluate(search, model, criterion, test_dl, device)
-        test_metrics = {'test_' + k: v for k, v in test_metrics.items()}
-        final_metrics = {
-            'loss': avgloss.get(),
-            'loss_task': avglosstask.get(),
-            'loss_reg': avglossreg.get(),
-            'acc': avgacc.get(),
-        }
-        final_metrics.update(val_metrics)
-        tepoch.set_postfix(final_metrics)
-        tepoch.close()
-        print(val_metrics)
-        print(test_metrics)
-        return final_metrics
+    torch.manual_seed(args.seed)
 
+    device = torch.device("cuda" if use_cuda else "cpu")
 
-def main(args):
-    DATA_DIR = args.data_dir
-    N_EPOCHS = args.epochs
-    LAMBDA = torch.tensor(args.strength)
+    train_kwargs = {'batch_size': args.batch_size}
+    test_kwargs = {'batch_size': args.test_batch_size}
+    if use_cuda:
+        cuda_kwargs = {'num_workers': 1,
+                       'pin_memory': True,
+                       'shuffle': True}
+        train_kwargs.update(cuda_kwargs)
+        test_kwargs.update(cuda_kwargs)
 
-    # Check CUDA availability
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    print("Training on:", device)
+    transform_train = transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
 
-    # Ensure determinstic execution
-    seed_all(seed=14)
+    transform_test = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+        ])
 
-    # Get the Data
-    # data_dir = os.path.join(os.getcwd(), DATA_DIR)
-    data_dir = DATA_DIR
-    datasets = icl.get_data(data_dir=data_dir)
-    dataloaders = icl.build_dataloaders(datasets)
-    train_dl, val_dl, test_dl = dataloaders
+    trainset = datasets.CIFAR10('data', train=True, download=True,
+                       transform=transform_train)
+    # Split dataset into train and validation
+    train_len = int(len(trainset) * 0.9)
+    val_len = len(trainset) - train_len
+    # Fix generator seed for reproducibility
+    data_gen = torch.Generator().manual_seed(args.seed)
+    train_dataset, val_dataset = torch.utils.data.random_split(trainset, [train_len, val_len], generator=data_gen)
 
-    # Get the Model
-    model = icl.get_reference_model('resnet_8')
-    model = model.to(device)
+    train_loader = torch.utils.data.DataLoader(train_dataset, **train_kwargs)
+    val_loader = torch.utils.data.DataLoader(val_dataset, **test_kwargs)
 
-    # Model Summary
-    input_example = torch.unsqueeze(datasets[0][0][0], 0).to(device)
-    input_shape = datasets[0][0][0].numpy().shape
-    print(summary(model, input_example, show_input=False, show_hierarchical=True))
+    testset = datasets.CIFAR10('data', train=False, download=True,
+                       transform=transform_test)
+    test_loader = torch.utils.data.DataLoader(testset, **test_kwargs)
 
-    # Warmup Loop
-    criterion = icl.get_default_criterion()
-    optimizer = icl.get_default_optimizer(model)
-    scheduler = icl.get_default_scheduler(optimizer)
-    warmup_checkpoint = CheckPoint('./warmup_checkpoints', model, optimizer, 'max')
-    skip_warmup = True
-    if pathlib.Path('final_best_warmup.ckp').exists():
-        warmup_checkpoint.load('final_best_warmup.ckp')
-        print("Skipping warmup")
+    print("=> creating model '{}'".format(args.arch))
+    model = models.__dict__[args.arch]().to(device)
+
+    # Check if pretrained model exists
+    if args.pretrained_model is not None:
+        print("=> using pre-trained model '{}'".format(args.pretrained_model))
+        model.load_state_dict(torch.load(args.pretrained_model))
     else:
-        skip_warmup = False
-        print("Running warmup")
+        print("=> no pre-trained model found")
 
-    if not skip_warmup:
-        for epoch in range(N_EPOCHS):
-            metrics = train_one_epoch(
-                epoch, False, model, criterion, optimizer, train_dl, val_dl, test_dl, device)
-            scheduler.step()
-            warmup_checkpoint(epoch, metrics['val_acc'])
-        warmup_checkpoint.load_best()
-        warmup_checkpoint.save('final_best_warmup.ckp')
+    optimizer = optim.SGD(model.parameters(), lr=args.lr,
+                            weight_decay=1e-4)
 
-    test_metrics = evaluate(False, model, criterion, test_dl, device)
-    print("Warmup Test Set Loss:", test_metrics['loss'])
-    print("Warmup Test Set Accuracy:", test_metrics['acc'])
+    scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs)
 
+    input_example = torch.unsqueeze(train_dataset[0][0][0], 0).to(device)
+    input_shape = train_dataset[0][0][0].numpy().shape
     # Convert the model to PIT
     pit_model = PIT(model, input_shape=input_shape)
     pit_model = pit_model.to(device)
@@ -178,61 +126,97 @@ def main(args):
     pit_model.train_dilation = False
     print(summary(pit_model, input_example, show_input=False, show_hierarchical=True))
 
-    # Search Loop
-    criterion = icl.get_default_criterion()
-    param_dicts = [
-        {'params': pit_model.nas_parameters(), 'weight_decay': 0},
-        {'params': pit_model.net_parameters()}]
-    optimizer = torch.optim.Adam(param_dicts, lr=0.001, weight_decay=1e-4)
-    scheduler = icl.get_default_scheduler(optimizer)
-    # Set EarlyStop with a patience of 20 epochs and CheckPoint
-    earlystop = EarlyStopping(patience=20, mode='max')
-    search_checkpoint = CheckPoint('./search_checkpoints', pit_model, optimizer, 'max')
-    for epoch in range(N_EPOCHS):
-        metrics = train_one_epoch(
-            epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device,
-            reg_strength=LAMBDA)
+    # Dummy test step to get inital complexities of model
+    size_i = pit_model.get_size()
+    ops_i = pit_model.get_macs()
+    print(f"Initial size: {size_i:.3e} params\tInitial ops: {ops_i:.3e} OPs")
 
-        if epoch > 5:
-            search_checkpoint(epoch, metrics['val_acc'])
-            if earlystop(metrics['val_acc']):
+    # Training
+    val_acc = 0
+    val_acc_best = 0
+    epoch_wout_improve = 0
+    for epoch in range(1, args.epochs + 1):
+        train(args, model, device, train_loader, optimizer, epoch)
+        val_acc = test(model, device, val_loader, scope='Validation')
+        if args.early_stop is not None:
+            if val_acc > val_acc_best and epoch >= 10:
+                val_acc_best = val_acc
+                epoch_wout_improve = 0
+                # Save model
+                print("=> saving new best model")
+                torch.save(model.state_dict(), 
+                    f"saved_models/srch_{args.arch}_target-{args.size_target:.1e}_cdops-{args.cd_ops:.1e}.pth.tar")
+            else:
+                epoch_wout_improve += 1 if epoch > 10 else 0
+                print(f"No improvement in {epoch_wout_improve} epochs")
+                print(f"Keep going for {args.early_stop - epoch_wout_improve} epochs")
+        test(model, device, test_loader, scope='Test')
+        scheduler.step()
+    
+        # Compute and print final size and ops
+        size_f = pit_model.get_size()
+        ops_f = pit_model.get_macs()
+        print(f"Final size: {size_f:.3e}/{size_i:.3e} parameters\tFinal ops: {ops_f:.3e}/{ops_i:.3e} OPs")
+        
+        if args.early_stop is not None: 
+            if epoch_wout_improve >= args.early_stop:
+                print("Early stopping...")
                 break
 
-        scheduler.step()
-        print("architectural summary:")
-        print(pit_model)
-        print("model size:", pit_model.get_size())
-    print("Load best model")
-    search_checkpoint.load_best()
-    print("final architectural summary:")
-    print(pit_model)
-    test_metrics = evaluate(True, pit_model, criterion, test_dl, device)
-    print("Search Test Set Loss:", test_metrics['loss'])
-    print("Search Test Set Accuracy:", test_metrics['acc'])
+    # Save model
+    if args.early_stop is None:
+        torch.save(model.state_dict(), 
+            f"saved_models/srch_{args.arch}_target-{args.size_target:.1e}_cdops-{args.cd_ops:.1e}.pth.tar")
 
-    # Convert pit model into pytorch model
-    exported_model = pit_model.arch_export()
-    exported_model = exported_model.to(device)
-    print(summary(exported_model, input_example, show_input=False, show_hierarchical=True))
+def train(args, model, device, train_loader, optimizer, epoch):
+    model.train()
+    avgacc = AverageMeter('6.2f')
+    avgloss = AverageMeter('2.5f')
+    avglosstask = AverageMeter('2.5f')
+    avglossreg = AverageMeter('2.5f')
+    step = 0
+    with tqdm(total=len(train_loader), unit="batch") as tepoch:
+        tepoch.set_description(f"Epoch {epoch+1}")
+        for batch_idx, (data, target) in enumerate(train_loader):
+            step += 1
+            tepoch.update(1)
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            loss = nn.CrossEntropyLoss()(output, target)
+            # Compute size-complexity loss with constraint
+            loss_reg = args.cd_size * (model.get_size() - args.size_target)
+            # Compute ops-complexity loss with constraint
+            loss_ops = args.cd_ops * model.get_macs()
+            loss += loss_ops + loss_reg
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            if batch_idx % args.log_interval == 0:
+                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tSize-Loss: {:.6f}\tOps-Loss: {:.6f}'.format(
+                    epoch, batch_idx * len(data), len(train_loader.dataset),
+                    100. * batch_idx / len(train_loader), loss.item(), loss_size.item(), loss_ops.item()))
+                if args.dry_run:
+                    break
 
-    # Fine-tuning
-    criterion = icl.get_default_criterion()
-    optimizer = icl.get_default_optimizer(exported_model)
-    scheduler = icl.get_default_scheduler(optimizer)
-    for epoch in range(N_EPOCHS):
-        train_one_epoch(
-            epoch, False, exported_model, criterion, optimizer, train_dl, val_dl, test_dl, device)
-        scheduler.step()
-    test_metrics = evaluate(False, exported_model, criterion, test_dl, device)
-    print("Fine-tuning Test Set Loss:", test_metrics['loss'])
-    print("Fine-tuning Test Set Accuracy:", test_metrics['acc'])
+def test(model, device, test_loader, scope='Test'):
+    model.eval()
+    test_loss = 0
+    correct = 0
+    with torch.no_grad():
+        for data, target in test_loader:
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            test_loss += nn.CrossEntropyLoss(reduction='sum')(output, target).item()  # sum up batch loss
+            pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
+            correct += pred.eq(target.view_as(pred)).sum().item()
 
+    test_loss /= len(test_loader.dataset)
+
+    print('\n{} set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
+        scope, test_loss, correct, len(test_loader.dataset),
+        100. * correct / len(test_loader.dataset)))
+
+    return 100. * correct / len(test_loader.dataset)
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='NAS Search and Fine-Tuning')
-    parser.add_argument('--strength', type=float, help='Regularization Strength')
-    parser.add_argument('--epochs', type=int, help='Number of Training Epochs')
-    parser.add_argument('--data-dir', type=str, default=None,
-                        help='Path to Directory with Training Data')
-    args = parser.parse_args()
-    main(args)
+    main()
