@@ -5,7 +5,7 @@ cd_ops=$2
 
 cd_size=5e-4
 
-arch="searchable_resnet8"
+arch="plain_resnet8"
 pretrained_model="pretrained_model/warmup.pth.tar"
 
 if [[ "$3" == "search" ]]; then
