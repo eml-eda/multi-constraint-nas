@@ -141,8 +141,8 @@ def main():
     val_acc_best = 0
     epoch_wout_improve = 0
     for epoch in range(1, args.epochs + 1):
-        train(args, model, device, train_loader, optimizer, epoch)
-        val_acc = test(model, device, val_loader, scope='Validation')
+        train(args, pit_model, device, train_loader, optimizer, epoch)
+        val_acc = test(pit_model, device, val_loader, scope='Validation')
         if args.early_stop is not None:
             if val_acc > val_acc_best and epoch >= 10:
                 val_acc_best = val_acc
@@ -155,7 +155,7 @@ def main():
                 epoch_wout_improve += 1 if epoch > 10 else 0
                 print(f"No improvement in {epoch_wout_improve} epochs")
                 print(f"Keep going for {args.early_stop - epoch_wout_improve} epochs")
-        test(model, device, test_loader, scope='Test')
+        test(pit_model, device, test_loader, scope='Test')
         scheduler.step()
     
         # Compute and print final size and ops
@@ -204,13 +204,10 @@ def test(model, device, test_loader, scope='Test'):
             test_loss += nn.CrossEntropyLoss(reduction='sum')(output, target).item()  # sum up batch loss
             pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
-
     test_loss /= len(test_loader.dataset)
-
     print('\n{} set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
         scope, test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
-
     return 100. * correct / len(test_loader.dataset)
 
 if __name__ == '__main__':
