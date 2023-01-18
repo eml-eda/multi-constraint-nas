@@ -6,7 +6,8 @@ cd_ops=$2
 cd_size=5e-4
 
 arch="plain_resnet8"
-pretrained_model="pretrained_model/warmup.pth.tar"
+#pretrained_model="pretrained_model/warmup.pth.tar"
+pretrained_model=None
 
 if [[ "$3" == "search" ]]; then
     echo Search
