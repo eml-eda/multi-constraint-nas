@@ -7,14 +7,12 @@ cd_size=5e-4
 
 arch="plain_resnet8"
 #pretrained_model="pretrained_model/warmup.pth.tar"
-pretrained_model=None
-
+#--pretrained-model ${pretrained_model} 
 if [[ "$3" == "search" ]]; then
     echo Search
     python search_flexnas.py -a ${arch} \
         --cd-size ${cd_size} --size-target ${size_target} \
-        --cd-ops ${cd_ops} \
-        --pretrained-model ${pretrained_model} | tee log/srch_${arch}_${size_target}_${cd_ops}.log
+        --cd-ops ${cd_ops} | tee log/srch_${arch}_${size_target}_${cd_ops}.log
 fi
 
 if [[ "$4" == "ft" ]]; then
