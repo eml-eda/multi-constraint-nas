@@ -77,7 +77,7 @@ class ResNet8(nn.Module):
         
         # Final classifier
         self.avgpool = nn.AvgPool2d(kernel_size=8)
-        self.fc = conv_func(64, num_classes, 1, 1)
+        self.fc = nn.Linear(64, 10)
 
         # Init
         for m in self.modules():
@@ -129,6 +129,7 @@ class ResNet8(nn.Module):
 
         # Final classifier
         x = self.avgpool(x) 
+        x = torch.flatten(x, 1)
         x = self.fc(x)#[:, :, 0, 0]
 
         return x

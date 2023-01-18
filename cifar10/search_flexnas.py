@@ -121,8 +121,8 @@ def main():
 
     scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs)
 
-    input_example = torch.unsqueeze(train_dataset[0][0][0], 0).to(device)
-    input_shape = train_dataset[0][0][0].numpy().shape
+    input_example = torch.unsqueeze(train_dataset[0][0], 0).to(device)
+    input_shape = train_dataset[0][0].numpy().shape
     # Convert the model to PIT
     pit_model = PIT(model, input_shape=input_shape)
     pit_model = pit_model.to(device)
@@ -149,7 +149,7 @@ def main():
                 epoch_wout_improve = 0
                 # Save model
                 print("=> saving new best model")
-                torch.save(model.state_dict(), 
+                torch.save(pit_model.state_dict(), 
                     f"saved_models/srch_{args.arch}_target-{args.size_target:.1e}_cdops-{args.cd_ops:.1e}.pth.tar")
             else:
                 epoch_wout_improve += 1 if epoch > 10 else 0
@@ -170,18 +170,14 @@ def main():
 
     # Save model
     if args.early_stop is None:
-        torch.save(model.state_dict(), 
+        torch.save(pit_model.state_dict(), 
             f"saved_models/srch_{args.arch}_target-{args.size_target:.1e}_cdops-{args.cd_ops:.1e}.pth.tar")
 
 def train(args, model, device, train_loader, optimizer, epoch):
     model.train()
-    avgacc = AverageMeter('6.2f')
-    avgloss = AverageMeter('2.5f')
-    avglosstask = AverageMeter('2.5f')
-    avglossreg = AverageMeter('2.5f')
     step = 0
     with tqdm(total=len(train_loader), unit="batch") as tepoch:
-        tepoch.set_description(f"Epoch {epoch+1}")
+        tepoch.set_description(f"Epoch {epoch}")
         for batch_idx, (data, target) in enumerate(train_loader):
             step += 1
             tepoch.update(1)
@@ -189,19 +185,13 @@ def train(args, model, device, train_loader, optimizer, epoch):
             output = model(data)
             loss = nn.CrossEntropyLoss()(output, target)
             # Compute size-complexity loss with constraint
-            loss_reg = args.cd_size * (model.get_size() - args.size_target)
-            # Compute ops-complexity loss with constraint
-            loss_ops = args.cd_ops * model.get_macs()
-            loss += loss_ops + loss_reg
+            # loss_reg = args.cd_size * (model.get_size() - args.size_target)
+            # # Compute ops-complexity loss with constraint
+            # loss_ops = args.cd_ops * model.get_macs()
+            # loss += loss_ops + loss_reg
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            if batch_idx % args.log_interval == 0:
-                print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tSize-Loss: {:.6f}\tOps-Loss: {:.6f}'.format(
-                    epoch, batch_idx * len(data), len(train_loader.dataset),
-                    100. * batch_idx / len(train_loader), loss.item(), loss_size.item(), loss_ops.item()))
-                if args.dry_run:
-                    break
 
 def test(model, device, test_loader, scope='Test'):
     model.eval()
