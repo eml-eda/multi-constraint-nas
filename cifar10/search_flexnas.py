@@ -185,7 +185,7 @@ def train(args, model, device, train_loader, optimizer, epoch):
             output = model(data)
             loss = nn.CrossEntropyLoss()(output, target)
             # Compute size-complexity loss with constraint
-            loss_reg = args.cd_size * (model.get_size() - args.size_target)
+            loss_reg = args.cd_size * torch.abs((model.get_size() - args.size_target))
             # Compute ops-complexity loss with constraint
             loss_ops = args.cd_ops * model.get_macs()
             loss += loss_ops + loss_reg
