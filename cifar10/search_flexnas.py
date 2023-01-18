@@ -1,6 +1,10 @@
 import argparse
 import pathlib
 from typing import Dict
+import sys
+import os
+sys.path.append(os.getcwd() + '/../flexnas')
+sys.path.append('..')
 
 from pytorch_model_summary import summary
 import torch
