@@ -116,10 +116,6 @@ def main():
     else:
         print("=> no pre-trained model found")
 
-    optimizer = optim.SGD(model.parameters(), lr=args.lr,
-                            weight_decay=1e-4)
-
-    scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs)
 
     input_example = torch.unsqueeze(train_dataset[0][0], 0).to(device)
     input_shape = train_dataset[0][0].numpy().shape
@@ -131,6 +127,10 @@ def main():
     pit_model.train_dilation = False
     print(summary(pit_model, input_example, show_input=False, show_hierarchical=True))
 
+    optimizer = optim.SGD(pit_model.parameters(), lr=args.lr,
+                            weight_decay=1e-4)
+
+    scheduler = CosineAnnealingLR(optimizer, T_max=args.epochs)
     # Dummy test step to get inital complexities of model
     size_i = pit_model.get_size()
     ops_i = pit_model.get_macs()
@@ -185,10 +185,10 @@ def train(args, model, device, train_loader, optimizer, epoch):
             output = model(data)
             loss = nn.CrossEntropyLoss()(output, target)
             # Compute size-complexity loss with constraint
-            # loss_reg = args.cd_size * (model.get_size() - args.size_target)
-            # # Compute ops-complexity loss with constraint
-            # loss_ops = args.cd_ops * model.get_macs()
-            # loss += loss_ops + loss_reg
+            loss_reg = args.cd_size * (model.get_size() - args.size_target)
+            # Compute ops-complexity loss with constraint
+            loss_ops = args.cd_ops * model.get_macs()
+            loss += loss_ops + loss_reg
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
