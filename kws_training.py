@@ -146,8 +146,8 @@ def main(args):
     scheduler = kws.get_default_scheduler(optimizer)
     warmup_checkpoint = CheckPoint(f'./warmup_checkpoints', model, optimizer, 'max', fmt='ck_kws_{epoch:03d}.pt')
     skip_warmup = True
-    if pathlib.Path(f'.warmup_checkpoints/final_best_warmup_vww.ckp').exists():
-        warmup_checkpoint.load(f'.warmup_checkpoints/final_best_warmup_vww.ckp')
+    if pathlib.Path(f'./warmup_checkpoints/final_best_warmup_kws.ckp').exists():
+        warmup_checkpoint.load(f'./warmup_checkpoints/final_best_warmup_kws.ckp')
         print("Skipping warmup")
     else:
         skip_warmup = False
@@ -160,7 +160,7 @@ def main(args):
             scheduler.step()
             warmup_checkpoint(epoch, metrics['val_acc'])
         warmup_checkpoint.load_best()
-        warmup_checkpoint.save(f'.warmup_checkpoints/final_best_warmup_vww.ckp')
+        warmup_checkpoint.save(f'./warmup_checkpoints/final_best_warmup_kws.ckp')
 
     test_metrics = evaluate(False, model, criterion, test_dl, device)
     print("Warmup Test Set Loss:", test_metrics['loss'])
