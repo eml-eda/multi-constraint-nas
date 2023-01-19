@@ -309,10 +309,16 @@ def main(args):
     criterion = icl.get_default_criterion()
     optimizer = icl.get_default_optimizer(exported_model)
     scheduler = icl.get_default_scheduler(optimizer)
+    finetune_checkpoint = CheckPoint('./finetuning_checkpoints', pit_model, optimizer, 'max', fmt='ck_icl_{epoch:03d}.pt')
+    earlystop = EarlyStopping(patience=50, mode='max')
     for epoch in range(N_EPOCHS):
-        train_one_epoch(
+        metrics = train_one_epoch(
             epoch, False, exported_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args)
         scheduler.step()
+        if epoch > 0:
+            finetune_checkpoint(epoch, metrics['val_acc'])
+            if earlystop(metrics['val_acc']):
+                break
     test_metrics = evaluate(False, exported_model, criterion, test_dl, device)
     print("Fine-tuning Test Set Loss:", test_metrics['loss'])
     print("Fine-tuning Test Set Accuracy:", test_metrics['acc'])
