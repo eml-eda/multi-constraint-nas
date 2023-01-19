@@ -145,7 +145,7 @@ def main(args):
     criterion = vww.get_default_criterion()
     optimizer = vww.get_default_optimizer(model)
     scheduler = vww.get_default_scheduler(optimizer)
-    warmup_checkpoint = CheckPoint(f'./warmup_checkpoints', model, optimizer, 'max')
+    warmup_checkpoint = CheckPoint(f'./warmup_checkpoints', model, optimizer, 'max', fmt='ck_vww_{epoch:03d}.pt')
     skip_warmup = True
     if pathlib.Path(f'./warmup_checkpoints/final_best_warmup_vww.ckp').exists():
         warmup_checkpoint.load(f'./warmup_checkpoints/final_best_warmup_vww.ckp')
@@ -184,7 +184,7 @@ def main(args):
     scheduler = vww.get_default_scheduler(optimizer)
     # Set EarlyStop with a patience of 20 epochs and CheckPoint
     earlystop = EarlyStopping(patience=20, mode='max')
-    search_checkpoint = CheckPoint(f'./search_checkpoints', pit_model, optimizer, 'max')
+    search_checkpoint = CheckPoint(f'./search_checkpoints', pit_model, optimizer, 'max', fmt='ck_vww_{epoch:03d}.pt')
     for epoch in range(N_EPOCHS):
         metrics = train_one_epoch(
             epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args)
@@ -215,10 +215,16 @@ def main(args):
     criterion = vww.get_default_criterion()
     optimizer = vww.get_default_optimizer(exported_model)
     scheduler = vww.get_default_scheduler(optimizer)
+    finetune_checkpoint = CheckPoint('./finetuning_checkpoints', pit_model, optimizer, 'max', fmt='ck_vww_{epoch:03d}.pt')
+    earlystop = EarlyStopping(patience=50, mode='max')
     for epoch in range(N_EPOCHS):
-        train_one_epoch(
+        metrics = train_one_epoch(
             epoch, False, exported_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args)
         scheduler.step()
+        if epoch > 0:
+            finetune_checkpoint(epoch, metrics['val_acc'])
+            if earlystop(metrics['val_acc']):
+                break
     test_metrics = evaluate(False, exported_model, criterion, test_dl, device)
     print("Fine-tuning Test Set Loss:", test_metrics['loss'])
     print("Fine-tuning Test Set Accuracy:", test_metrics['acc'])

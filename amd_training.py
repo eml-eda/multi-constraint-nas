@@ -135,7 +135,7 @@ def main(args):
     criterion = amd.get_default_criterion()
     optimizer = amd.get_default_optimizer(model)
 
-    warmup_checkpoint = CheckPoint(f'./warmup_checkpoints', model, optimizer, 'min')
+    warmup_checkpoint = CheckPoint(f'./warmup_checkpoints', model, optimizer, 'min', fmt='ck_amd_{epoch:03d}.pt')
     skip_warmup = True
     if pathlib.Path(f'.warmup_checkpoints/final_best_warmup_amd.ckp').exists():
         warmup_checkpoint.load(f'.warmup_checkpoints/final_best_warmup_amd.ckp')
@@ -173,7 +173,7 @@ def main(args):
     optimizer = torch.optim.Adam(param_dicts)
     # Set EarlyStop with a patience of 20 epochs and CheckPoint
     earlystop = EarlyStopping(patience=20, mode='max')
-    search_checkpoint = CheckPoint(f'./search_checkpoints', pit_model, optimizer, 'min')
+    search_checkpoint = CheckPoint(f'./search_checkpoints', pit_model, optimizer, 'min', fmt='ck_amd_{epoch:03d}.pt')
     for epoch in range(N_EPOCHS):
         train_metrics = train_one_epoch(
             epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, device,args)
@@ -204,11 +204,15 @@ def main(args):
     # Fine-tuning
     criterion = amd.get_default_criterion()
     optimizer = amd.get_default_optimizer(exported_model)
-
+    finetune_checkpoint = CheckPoint('./finetuning_checkpoints', pit_model, optimizer, 'min', fmt='ck_amd_{epoch:03d}.pt')
+    earlystop = EarlyStopping(patience=50, mode='max')
     for epoch in range(N_EPOCHS):
-        train_one_epoch(
+        metrics = train_one_epoch(
             epoch, False, exported_model, criterion, optimizer, train_dl, val_dl, device, args)
-
+        if epoch > 0:
+            finetune_checkpoint(epoch, metrics['val_acc'])
+            if earlystop(metrics['val_acc']):
+                break
     test_metrics = amd.test(test_dl, exported_model)
     auc, pAuc = test_results(test_metrics)
     print("Fine-tuning Test Set Average AUC: ", auc)
