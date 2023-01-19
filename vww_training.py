@@ -19,8 +19,7 @@ def evaluate(
         model: nn.Module,
         criterion: nn.Module,
         data: DataLoader,
-        device: torch.device,
-        reg_strength: torch.Tensor = torch.tensor(0.)) -> Dict[str, float]:
+        device: torch.device) -> Dict[str, float]:
     model.eval()
     avgacc = AverageMeter('6.2f')
     avgloss = AverageMeter('2.5f')
@@ -97,7 +96,7 @@ def train_one_epoch(
                                     'loss_task': avglosstask,
                                     'loss_reg': avglossreg,
                                     'acc': avgacc})
-        val_metrics = evaluate(search, model, criterion, val_dl, device, reg_strength)
+        val_metrics = evaluate(search, model, criterion, val_dl, device)
         val_metrics = {'val_' + k: v for k, v in val_metrics.items()}
         test_metrics = evaluate(search, model, criterion, test_dl, device)
         test_metrics = {'test_' + k: v for k, v in test_metrics.items()}
