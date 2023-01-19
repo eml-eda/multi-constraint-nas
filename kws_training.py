@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from flexnas.methods import PIT
-import pytorch_benchmarks.visual_wake_words as vww
+import pytorch_benchmarks.keyword_spotting as kws
 from pytorch_benchmarks.utils import AverageMeter, seed_all, accuracy, CheckPoint, EarlyStopping
 
 
@@ -19,8 +19,7 @@ def evaluate(
         model: nn.Module,
         criterion: nn.Module,
         data: DataLoader,
-        device: torch.device,
-        reg_strength: torch.Tensor = torch.tensor(0.)) -> Dict[str, float]:
+        device: torch.device) -> Dict[str, float]:
     model.eval()
     avgacc = AverageMeter('6.2f')
     avgloss = AverageMeter('2.5f')
@@ -33,12 +32,8 @@ def evaluate(
             audio, target = audio.to(device), target.to(device)
             output = model(audio)
             loss_task = criterion(output, target)
-            if search:
-                loss_reg = reg_strength * model.get_regularization_loss()
-                loss = loss_task + loss_reg
-            else:
-                loss = loss_task
-                loss_reg = 0.
+            loss = loss_task
+            loss_reg = 0.
             acc_val = accuracy(output, target, topk=(1,))
             avgacc.update(acc_val[0], audio.size(0))
             avgloss.update(loss, audio.size(0))
@@ -64,7 +59,7 @@ def train_one_epoch(
         val_dl: DataLoader,
         test_dl: DataLoader,
         device: torch.device,
-        reg_strength: torch.Tensor = torch.tensor(0.)) -> Dict[str, float]:
+        args) -> Dict[str, float]:
     model.train()
     avgacc = AverageMeter('6.2f')
     avgloss = AverageMeter('2.5f')
@@ -80,8 +75,11 @@ def train_one_epoch(
             output = model(audio)
             loss_task = criterion(output, target)
             if search:
-                loss_reg = reg_strength * model.get_regularization_loss()
-                loss = loss_task + loss_reg
+                # Compute size-complexity loss with constraint
+                loss_reg = args.cd_size * torch.abs((model.get_size() - args.size_target))
+                # Compute ops-complexity loss with constraint
+                loss_ops = args.cd_ops * model.get_macs()
+                loss = loss_task + loss_ops + loss_reg
             else:
                 loss = loss_task
                 loss_reg = 0
@@ -98,7 +96,7 @@ def train_one_epoch(
                                     'loss_task': avglosstask,
                                     'loss_reg': avglossreg,
                                     'acc': avgacc})
-        val_metrics = evaluate(search, model, criterion, val_dl, device, reg_strength)
+        val_metrics = evaluate(search, model, criterion, val_dl, device)
         val_metrics = {'val_' + k: v for k, v in val_metrics.items()}
         test_metrics = evaluate(search, model, criterion, test_dl, device)
         test_metrics = {'test_' + k: v for k, v in test_metrics.items()}
@@ -119,8 +117,6 @@ def train_one_epoch(
 def main(args):
     DATA_DIR = args.data_dir
     N_EPOCHS = args.epochs
-    LAMBDA = torch.tensor(args.strength)
-    CKP_DIR = args.ckp_dir
 
     # Check CUDA availability
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -131,12 +127,12 @@ def main(args):
 
     # Get the Data
     data_dir = DATA_DIR
-    datasets = vww.get_data(data_dir=data_dir)
-    dataloaders = vww.build_dataloaders(datasets)
+    datasets = kws.get_data(data_dir=data_dir)
+    dataloaders = kws.build_dataloaders(datasets)
     train_dl, val_dl, test_dl = dataloaders
 
     # Get the Model
-    model = vww.get_reference_model('mobilenet')
+    model = kws.get_reference_model('ds_cnn')
     model = model.to(device)
 
     # Model Summary
@@ -145,13 +141,13 @@ def main(args):
     print(summary(model, input_example, show_input=False, show_hierarchical=True))
 
     # Warmup Loop
-    criterion = vww.get_default_criterion()
-    optimizer = vww.get_default_optimizer(model)
-    scheduler = vww.get_default_scheduler(optimizer)
-    warmup_checkpoint = CheckPoint(f'.{CKP_DIR}/warmup_checkpoints', model, optimizer, 'max')
+    criterion = kws.get_default_criterion()
+    optimizer = kws.get_default_optimizer(model)
+    scheduler = kws.get_default_scheduler(optimizer)
+    warmup_checkpoint = CheckPoint(f'./warmup_checkpoints', model, optimizer, 'max')
     skip_warmup = True
-    if pathlib.Path(f'.{CKP_DIR}/final_best_warmup.ckp').exists():
-        warmup_checkpoint.load(f'.{CKP_DIR}/final_best_warmup.ckp')
+    if pathlib.Path(f'.warmup_checkpoints/final_best_warmup_vww.ckp').exists():
+        warmup_checkpoint.load(f'.warmup_checkpoints/final_best_warmup_vww.ckp')
         print("Skipping warmup")
     else:
         skip_warmup = False
@@ -160,11 +156,11 @@ def main(args):
     if not skip_warmup:
         for epoch in range(N_EPOCHS):
             metrics = train_one_epoch(
-                epoch, False, model, criterion, optimizer, train_dl, val_dl, test_dl, device)
+                epoch, False, model, criterion, optimizer, train_dl, val_dl, test_dl, device, args)
             scheduler.step()
             warmup_checkpoint(epoch, metrics['val_acc'])
         warmup_checkpoint.load_best()
-        warmup_checkpoint.save(f'.{CKP_DIR}/final_best_warmup.ckp')
+        warmup_checkpoint.save(f'.warmup_checkpoints/final_best_warmup_vww.ckp')
 
     test_metrics = evaluate(False, model, criterion, test_dl, device)
     print("Warmup Test Set Loss:", test_metrics['loss'])
@@ -179,21 +175,20 @@ def main(args):
     print(summary(pit_model, input_example, show_input=False, show_hierarchical=True))
 
     # Search Loop
-    criterion = vww.get_default_criterion()
+    criterion = kws.get_default_criterion()
     param_dicts = [
         {'params': pit_model.nas_parameters(), 'weight_decay': 0},
         {'params': pit_model.net_parameters()}]
-    optimizer = torch.optim.Adam(param_dicts, lr=0.001, weight_decay=1e-4)
-    scheduler = vww.get_default_scheduler(optimizer)
+    optimizer = torch.optim.Adam(param_dicts, lr=0.0005, weight_decay=1e-4)
+    scheduler = kws.get_default_scheduler(optimizer)
     # Set EarlyStop with a patience of 20 epochs and CheckPoint
     earlystop = EarlyStopping(patience=20, mode='max')
-    search_checkpoint = CheckPoint(f'.{CKP_DIR}//search_checkpoints', pit_model, optimizer, 'max')
+    search_checkpoint = CheckPoint(f'./search_checkpoints', pit_model, optimizer, 'max')
     for epoch in range(N_EPOCHS):
         metrics = train_one_epoch(
-            epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device,
-            reg_strength=LAMBDA)
+            epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args)
 
-        if epoch > 5:
+        if epoch > 0:
             search_checkpoint(epoch, metrics['val_acc'])
             if earlystop(metrics['val_acc']):
                 break
@@ -216,12 +211,12 @@ def main(args):
     print(summary(exported_model, input_example, show_input=False, show_hierarchical=True))
 
     # Fine-tuning
-    criterion = vww.get_default_criterion()
-    optimizer = vww.get_default_optimizer(exported_model)
-    scheduler = vww.get_default_scheduler(optimizer)
+    criterion = kws.get_default_criterion()
+    optimizer = kws.get_default_optimizer(exported_model)
+    scheduler = kws.get_default_scheduler(optimizer)
     for epoch in range(N_EPOCHS):
         train_one_epoch(
-            epoch, False, exported_model, criterion, optimizer, train_dl, val_dl, test_dl, device)
+            epoch, False, exported_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args)
         scheduler.step()
     test_metrics = evaluate(False, exported_model, criterion, test_dl, device)
     print("Fine-tuning Test Set Loss:", test_metrics['loss'])
@@ -230,11 +225,14 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='NAS Search and Fine-Tuning')
-    parser.add_argument('--strength', type=float, help='Regularization Strength')
     parser.add_argument('--epochs', type=int, help='Number of Training Epochs')
+    parser.add_argument('--cd-size', type=float, default=0.0, metavar='CD',
+                        help='complexity decay size (default: 0.0)')
+    parser.add_argument('--cd-ops', type=float, default=0.0, metavar='CD',
+                        help='complexity decay ops (default: 0.0)')
+    parser.add_argument('--size-target', type=float, default=0, metavar='ST',
+                        help='target size (default: 0)')
     parser.add_argument('--data-dir', type=str, default=None,
                         help='Path to Directory with Training Data')
-    parser.add_argument('--ckp-dir', type=str, default="",
-                        help='Path to Directory with Checkpoints')
     args = parser.parse_args()
     main(args)

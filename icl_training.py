@@ -241,7 +241,7 @@ def main(args):
     scheduler = CosineAnnealingLR(optimizer, T_max=N_EPOCHS)
     warmup_checkpoint = CheckPoint('./warmup_checkpoints', model, optimizer, 'max',fmt='ck_icl_{epoch:03d}.pt')
     skip_warmup = True
-    if pathlib.Path('./warmup_checkpoints/final_best_warmup.ckp').exists():
+    if pathlib.Path('./warmup_checkpoints/final_best_warmup_icl.ckp').exists():
         warmup_checkpoint.load('./warmup_checkpoints/final_best_warmup_icl.ckp')
         print("Skipping warmup")
     else:
@@ -270,12 +270,12 @@ def main(args):
     print(summary(pit_model, input_example, show_input=False, show_hierarchical=True))
 
     # Search Loop
-    criterion = nn.CrossEntropyLoss()
+    criterion = icl.get_default_criterion()
     param_dicts = [
         {'params': pit_model.nas_parameters(), 'weight_decay': 0},
         {'params': pit_model.net_parameters()}]
-    optimizer = optim.SGD(param_dicts, lr=0.1, weight_decay=1e-4)
-    scheduler = CosineAnnealingLR(optimizer, T_max=N_EPOCHS)
+    optimizer = torch.optim.Adam(param_dicts, lr=0.001, weight_decay=1e-4)
+    scheduler = icl.get_default_scheduler(optimizer)
     # Set EarlyStop with a patience of 20 epochs and CheckPoint
     earlystop = EarlyStopping(patience=20, mode='max')
     search_checkpoint = CheckPoint('./search_checkpoints', pit_model, optimizer, 'max', fmt='ck_icl_{epoch:03d}.pt')
@@ -283,7 +283,7 @@ def main(args):
         metrics = train_one_epoch(
             epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args)
 
-        if epoch > 5:
+        if epoch > 0:
             search_checkpoint(epoch, metrics['val_acc'])
             if earlystop(metrics['val_acc']):
                 break

@@ -20,8 +20,7 @@ def evaluate(
         model: nn.Module,
         criterion: nn.Module,
         data: DataLoader,
-        device: torch.device,
-        reg_strength: torch.Tensor = torch.tensor(0.)) -> Dict[str, float]:
+        device: torch.device) -> Dict[str, float]:
     model.eval()
     avgloss = AverageMeter('2.5f')
     step = 0
@@ -30,12 +29,8 @@ def evaluate(
             step += 1
             audio = audio.to(device)
             output, loss_task = _run_model(model, audio, audio, criterion, device)
-            if search:
-                loss_reg = reg_strength * model.get_regularization_loss()
-                loss = loss_task + loss_reg
-            else:
-                loss = loss_task
-                loss_reg = 0.
+            loss = loss_task
+            loss_reg = 0.
             avgloss.update(loss, audio.size(0))
         final_metrics = {
             'loss': avgloss.get()
@@ -58,7 +53,7 @@ def train_one_epoch(
         train: DataLoader,
         val: DataLoader,
         device: torch.device,
-        reg_strength: torch.Tensor = torch.tensor(0.)) -> Dict[str, float]:
+        args) -> Dict[str, float]:
     model.train()
     avgloss = AverageMeter('2.5f')
     step = 0
@@ -70,8 +65,11 @@ def train_one_epoch(
             audio = audio.to(device)
             output, loss_task = _run_model(model, audio, audio, criterion, device)
             if search:
-                loss_reg = reg_strength * model.get_regularization_loss()
-                loss = loss_task + loss_reg
+                # Compute size-complexity loss with constraint
+                loss_reg = args.cd_size * torch.abs((model.get_size() - args.size_target))
+                # Compute ops-complexity loss with constraint
+                loss_ops = args.cd_ops * model.get_macs()
+                loss = loss_task + loss_ops + loss_reg
             else:
                 loss = loss_task
                 loss_reg = 0
@@ -110,8 +108,6 @@ def test_results(test_metrics):
 def main(args):
     DATA_DIR = args.data_dir
     N_EPOCHS = args.epochs
-    LAMBDA = torch.tensor(args.strength)
-    CKP_DIR = args.ckp_dir
 
     # Check CUDA availability
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -139,10 +135,10 @@ def main(args):
     criterion = amd.get_default_criterion()
     optimizer = amd.get_default_optimizer(model)
 
-    warmup_checkpoint = CheckPoint(f'.{CKP_DIR}/warmup_checkpoints', model, optimizer, 'min')
+    warmup_checkpoint = CheckPoint(f'./warmup_checkpoints', model, optimizer, 'min')
     skip_warmup = True
-    if pathlib.Path(f'.{CKP_DIR}/final_best_warmup.ckp').exists():
-        warmup_checkpoint.load(f'.{CKP_DIR}/final_best_warmup.ckp')
+    if pathlib.Path(f'.warmup_checkpoints/final_best_warmup_amd.ckp').exists():
+        warmup_checkpoint.load(f'.warmup_checkpoints/final_best_warmup_amd.ckp')
         print("Skipping warmup")
     else:
         skip_warmup = False
@@ -151,10 +147,10 @@ def main(args):
     if not skip_warmup:
         for epoch in range(N_EPOCHS):
             train_metrics = train_one_epoch(
-                epoch, False, model, criterion, optimizer, train_dl, val_dl, device)
+                epoch, False, model, criterion, optimizer, train_dl, val_dl, device, args)
             warmup_checkpoint(epoch, train_metrics['val_loss'])
         warmup_checkpoint.load_best()
-        warmup_checkpoint.save(f'.{CKP_DIR}/final_best_warmup.ckp')
+        warmup_checkpoint.save(f'.warmup_checkpoints/final_best_warmup.ckp')
 
     test_metrics = amd.test(test_dl, model)
     auc, pAuc = test_results(test_metrics)
@@ -177,11 +173,10 @@ def main(args):
     optimizer = torch.optim.Adam(param_dicts)
     # Set EarlyStop with a patience of 20 epochs and CheckPoint
     earlystop = EarlyStopping(patience=20, mode='max')
-    search_checkpoint = CheckPoint(f'.{CKP_DIR}/search_checkpoints', pit_model, optimizer, 'min')
+    search_checkpoint = CheckPoint(f'./search_checkpoints', pit_model, optimizer, 'min')
     for epoch in range(N_EPOCHS):
         train_metrics = train_one_epoch(
-            epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, device,
-            reg_strength=LAMBDA)
+            epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, device,args)
 
         if epoch > 5:
             search_checkpoint(epoch, train_metrics['val_loss'])
@@ -212,7 +207,7 @@ def main(args):
 
     for epoch in range(N_EPOCHS):
         train_one_epoch(
-            epoch, False, exported_model, criterion, optimizer, train_dl, val_dl, device)
+            epoch, False, exported_model, criterion, optimizer, train_dl, val_dl, device, args)
 
     test_metrics = amd.test(test_dl, exported_model)
     auc, pAuc = test_results(test_metrics)
@@ -222,11 +217,14 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='NAS Search and Fine-Tuning')
-    parser.add_argument('--strength', type=float, help='Regularization Strength')
     parser.add_argument('--epochs', type=int, help='Number of Training Epochs')
+    parser.add_argument('--cd-size', type=float, default=0.0, metavar='CD',
+                        help='complexity decay size (default: 0.0)')
+    parser.add_argument('--cd-ops', type=float, default=0.0, metavar='CD',
+                        help='complexity decay ops (default: 0.0)')
+    parser.add_argument('--size-target', type=float, default=0, metavar='ST',
+                        help='target size (default: 0)')
     parser.add_argument('--data-dir', type=str, default=None,
                         help='Path to Directory with Training Data')
-    parser.add_argument('--ckp-dir', type=str, default="",
-                        help='Path to Directory with Checkpoints')
     args = parser.parse_args()
     main(args)
