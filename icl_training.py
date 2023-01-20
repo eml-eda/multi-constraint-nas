@@ -15,98 +15,6 @@ from flexnas.methods import PIT
 import pytorch_benchmarks.image_classification as icl
 from pytorch_benchmarks.utils import AverageMeter, seed_all, accuracy, CheckPoint, EarlyStopping
 
-class ConvBlock(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=2, padding=1):
-        super().__init__()
-        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size,
-                               stride=stride, padding=padding, bias=False)
-        nn.init.kaiming_normal_(self.conv1.weight)
-        self.bn = nn.BatchNorm2d(out_channels)
-        self.relu = nn.ReLU()
-
-    def forward(self, input):
-        x = self.conv1(input)
-        return self.relu(self.bn(x))
-
-
-class ResNet8(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-
-        # Resnet v1 parameters
-        self.input_shape = [3, 32, 32]  # default size for cifar10
-        self.num_classes = 10  # default class number for cifar10
-        self.num_filters = 16  # this should be 64 for an official resnet model
-
-        # Resnet v1 layers
-
-        # First stack
-        self.inputblock = ConvBlock(in_channels=3, out_channels=16,
-                                    kernel_size=3, stride=1, padding=1)
-        self.convblock1 = ConvBlock(in_channels=16, out_channels=16,
-                                    kernel_size=3, stride=1, padding=1)
-        self.conv1 = nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1)
-        nn.init.kaiming_normal_(self.conv1.weight)
-        self.bn1 = nn.BatchNorm2d(16)
-        self.relu = nn.ReLU()
-
-        # Second stack
-        self.convblock2 = ConvBlock(in_channels=16, out_channels=32,
-                                    kernel_size=3, stride=2, padding=1)
-        self.conv2y = nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1)
-        nn.init.kaiming_normal_(self.conv2y.weight)
-        self.bn2 = nn.BatchNorm2d(32)
-        self.conv2x = nn.Conv2d(16, 32, kernel_size=1, stride=2, padding=0)
-        nn.init.kaiming_normal_(self.conv2x.weight)
-
-        # Third stack
-        self.convblock3 = ConvBlock(in_channels=32, out_channels=64,
-                                    kernel_size=3, stride=2, padding=1)
-        self.conv3y = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
-        nn.init.kaiming_normal_(self.conv3y.weight)
-        self.bn3 = nn.BatchNorm2d(64)
-        self.conv3x = nn.Conv2d(32, 64, kernel_size=1, stride=2, padding=0)
-        nn.init.kaiming_normal_(self.conv3x.weight)
-
-        self.avgpool = torch.nn.AvgPool2d(8)
-
-        self.out = nn.Linear(64, 10)
-        nn.init.kaiming_normal_(self.out.weight)
-
-    def forward(self, input):
-        # Input layer
-        x = self.inputblock(input)  # [32, 32, 16]
-
-        # First stack
-        y = self.convblock1(x)      # [32, 32, 16]
-        y = self.conv1(y)
-        y = self.bn1(y)
-        x = torch.add(x, y)         # [32, 32, 16]
-        x = self.relu(x)
-
-        # Second stack
-        y = self.convblock2(x)      # [16, 16, 32]
-        y = self.conv2y(y)
-        y = self.bn2(y)
-        x = self.conv2x(x)          # [16, 16, 32]
-        x = torch.add(x, y)         # [16, 16, 32]
-        x = self.relu(x)
-
-        # Third stack
-        y = self.convblock3(x)      # [8, 8, 64]
-        y = self.conv3y(y)
-        y = self.bn3(y)
-        x = self.conv3x(x)          # [8, 8, 64]
-        x = torch.add(x, y)         # [8, 8, 64]
-        x = self.relu(x)
-
-        x = self.avgpool(x)         # [1, 1, 64]
-        # x = torch.squeeze(x)        # [64]
-        x = torch.flatten(x, 1)
-        x = self.out(x)             # [10]
-
-        return x
-
 # Definition of evaluation function
 def evaluate(
         search: bool,
@@ -153,13 +61,24 @@ def train_one_epoch(
         val_dl: DataLoader,
         test_dl: DataLoader,
         device: torch.device,
-        args) -> Dict[str, float]:
+        args,
+        increment_cd_size = None,
+        increment_cd_ops = None) -> Dict[str, float]:
     model.train()
     avgacc = AverageMeter('6.2f')
     avgloss = AverageMeter('2.5f')
     avglosstask = AverageMeter('2.5f')
     avglossreg = AverageMeter('2.5f')
     step = 0
+    if args.l == "increasing":
+        cd_size = min(args.cd_size/100 + increment_cd_size*epoch, args.cd_size)
+        cd_ops = min(args.cd_ops/100 + increment_cd_ops*epoch, args.cd_ops)
+    elif args.l == "const":
+        cd_size = args.cd_size
+        cd_ops = args.cd_ops
+    # the goal is to arrive to the final cd_size and cd_ops in 1/5 of the total epochs
+    # starting from 2 orders of magnitude less
+
     with tqdm(total=len(train_dl), unit="batch") as tepoch:
         tepoch.set_description(f"Epoch {epoch+1}")
         for audio, target in train_dl:
@@ -168,15 +87,37 @@ def train_one_epoch(
             audio, target = audio.to(device), target.to(device)
             output = model(audio)
             loss_task = criterion(output, target)
+            
             if search:
+
                 # Compute size-complexity loss with constraint
-                loss_reg = args.cd_size * torch.abs((model.get_size() - args.size_target))
-                # Compute ops-complexity loss with constraint
-                loss_ops = args.cd_ops * model.get_macs()
+                if args.loss_type == "abs":
+                    if "mem" in args.loss_elements:
+                        loss_reg = cd_size * torch.abs((model.get_size() - args.size_target))
+                    else:
+                        loss_reg = cd_size * model.get_size()
+                    if "lat" in args.loss_elements:
+                        loss_ops = cd_ops * torch.abs((model.get_macs() - args.latency_target))
+                    else:
+                        loss_ops = cd_ops * model.get_macs()
+
+                elif args.loss_type == "max":
+                    if "mem" in args.loss_elements:
+                        loss_reg = cd_size * torch.max((model.get_size() - args.size_target), torch.FloatTensor([0]))[0]
+                    else:
+                        loss_reg = cd_size * model.get_size()
+                    if "lat" in args.loss_elements:
+                        loss_ops = cd_ops * torch.max((model.get_macs() - args.latency_target), torch.FloatTensor([0]))[0]
+                    else:
+                        loss_ops = cd_ops * model.get_macs()
+
                 loss = loss_task + loss_ops + loss_reg
+
             else:
+
                 loss = loss_task
                 loss_reg = 0
+            
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -227,7 +168,7 @@ def main(args):
     train_dl, val_dl, test_dl = dataloaders
 
     # Get the Model
-    model = ResNet8()
+    model = icl.get_reference_model('resnet_8')
     model = model.to(device)
 
     # Model Summary
@@ -278,10 +219,16 @@ def main(args):
     scheduler = icl.get_default_scheduler(optimizer)
     # Set EarlyStop with a patience of 20 epochs and CheckPoint
     earlystop = EarlyStopping(patience=20, mode='max')
-    search_checkpoint = CheckPoint('./search_checkpoints', pit_model, optimizer, 'max', fmt='ck_icl_{epoch:03d}.pt')
+    name = f"ck_icl_opt_{args.loss_type}_targets_{args.loss_elements}_size_{args.size_target}_lat_{args.latency_target}"
+    search_checkpoint = CheckPoint('./search_checkpoints', pit_model, optimizer, 'max', fmt=name+'_{epoch:03d}.pt')
+    print("Initial model size:", pit_model.get_size())
+    print("Initial model MACs:", pit_model.get_macs())
+    increment_cd_size = (args.cd_size*99/100)/int(args.epochs/5)
+    increment_cd_ops = (args.cd_ops*99/100)/int(args.epochs/5)
     for epoch in range(N_EPOCHS):
         metrics = train_one_epoch(
-            epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args)
+            epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, increment_cd_size, increment_cd_ops)
+
 
         if epoch > 0:
             search_checkpoint(epoch, metrics['val_acc'])
@@ -292,6 +239,8 @@ def main(args):
         print("architectural summary:")
         print(pit_model)
         print("model size:", pit_model.get_size())
+        print("model MACs:", pit_model.get_macs())
+        print(f"cd_size:  {min(args.cd_size/100 + increment_cd_size*epoch, args.cd_size)} cd_ops: {min(args.cd_ops/100 + increment_cd_ops*epoch, args.cd_ops)}")
     print("Load best model")
     search_checkpoint.load_best()
     print("final architectural summary:")
@@ -333,7 +282,15 @@ if __name__ == '__main__':
                         help='complexity decay ops (default: 0.0)')
     parser.add_argument('--size-target', type=float, default=0, metavar='ST',
                         help='target size (default: 0)')
+    parser.add_argument('--latency-target', type=float, default=0, metavar='ST',
+                        help='target latency (default: 0)')
     parser.add_argument('--data-dir', type=str, default=None,
                         help='Path to Directory with Training Data')
+    parser.add_argument('--loss_type', type=str, default="max",
+                        help='abs, max')
+    parser.add_argument('--loss_elements', type=str, default="mem",
+                        help='loss type: mem, lat, mem+lat')
+    parser.add_argument('--l', type=str, default="const",
+                        help='const, increasing')
     args = parser.parse_args()
     main(args)
