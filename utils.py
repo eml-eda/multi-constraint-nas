@@ -95,11 +95,11 @@ def train_one_epoch(
                         loss_ops = cd_ops * model.get_macs()
                 elif args.loss_type == "max":
                     if "mem" in args.loss_elements:
-                        loss_reg = cd_size * torch.max((model.get_size() - args.size_target), torch.FloatTensor([0]))[0]
+                        loss_reg = cd_size * torch.max((model.get_size() - args.size_target), torch.FloatTensor([0]).to(device))[0]
                     else:
                         loss_reg = cd_size * model.get_size()
                     if "lat" in args.loss_elements:
-                        loss_ops = cd_ops * torch.max((model.get_macs() - args.latency_target), torch.FloatTensor([0]))[0]
+                        loss_ops = cd_ops * torch.max((model.get_macs() - args.latency_target), torch.FloatTensor([0]).to(device))[0]
                     else:
                         loss_ops = cd_ops * model.get_macs()
                 loss = loss_task + loss_ops + loss_reg
