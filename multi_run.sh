@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-size_target=( 2.6e+04 2.6e+04 2.6e+04 )
+size_target=( 2.0e+04 4.0e+04 6.0e+04 )
 cd_size=5e-4
 
-latency_target=2.0e+06
+latency_target=(2.0e+06 6.0e+06 1.0e+07 )
 cd_ops=( 1.3e-5 5.9e-6 3.8e-6 )
 l=( "const" "increasing" )
 loss=( "abs" "max" )
