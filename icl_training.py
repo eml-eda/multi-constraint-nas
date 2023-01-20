@@ -219,7 +219,7 @@ def main(args):
     scheduler = icl.get_default_scheduler(optimizer)
     # Set EarlyStop with a patience of 20 epochs and CheckPoint
     earlystop = EarlyStopping(patience=20, mode='max')
-    name = f"ck_icl_opt_{args.loss_type}_targets_{args.loss_elements}_size_{args.size_target}_lat_{args.latency_target}"
+    name = f"ck_icl_opt_{args.loss_type}_targets_{args.loss_elements}_{args.l}_size_{args.size_target}_lat_{args.latency_target}"
     search_checkpoint = CheckPoint('./search_checkpoints', pit_model, optimizer, 'max', fmt=name+'_{epoch:03d}.pt')
     print("Initial model size:", pit_model.get_size())
     print("Initial model MACs:", pit_model.get_macs())
@@ -258,7 +258,8 @@ def main(args):
     criterion = icl.get_default_criterion()
     optimizer = icl.get_default_optimizer(exported_model)
     scheduler = icl.get_default_scheduler(optimizer)
-    finetune_checkpoint = CheckPoint('./finetuning_checkpoints', pit_model, optimizer, 'max', fmt='ck_icl_{epoch:03d}.pt')
+    name = f"ck_icl_opt_{args.loss_type}_targets_{args.loss_elements}_{args.l}_size_{args.size_target}_lat_{args.latency_target}"
+    finetune_checkpoint = CheckPoint('./finetuning_checkpoints', pit_model, optimizer, 'max', fmt=name+'_{epoch:03d}.pt')
     earlystop = EarlyStopping(patience=50, mode='max')
     for epoch in range(N_EPOCHS):
         metrics = train_one_epoch(
