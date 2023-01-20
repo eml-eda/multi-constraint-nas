@@ -270,6 +270,9 @@ def main(args):
             if earlystop(metrics['val_acc']):
                 break
     test_metrics = evaluate(False, exported_model, criterion, test_dl, device)
+    finetune_checkpoint.load_best()
+    name = f"best_final_ck_icl_opt_{args.loss_type}_targets_{args.loss_elements}_{args.l}_size_{args.size_target}_lat_{args.latency_target}.ckp"
+    finetune_checkpoint.save('./finetuning_checkpoints/'+name)
     print("Fine-tuning Test Set Loss:", test_metrics['loss'])
     print("Fine-tuning Test Set Accuracy:", test_metrics['acc'])
 
