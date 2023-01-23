@@ -94,7 +94,7 @@ def main(args):
     for epoch in range(N_EPOCHS):
         metrics = train_one_epoch(
             epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, increment_cd_size, increment_cd_ops)
-        if epoch > 0:
+        if epoch > 15:
             search_checkpoint(epoch, metrics['val_acc'])
             if earlystop(metrics['val_acc']):
                 break
@@ -107,6 +107,8 @@ def main(args):
         print(f"cd_size:  {min(args.cd_size/100 + increment_cd_size*epoch, args.cd_size)} cd_ops: {min(args.cd_ops/100 + increment_cd_ops*epoch, args.cd_ops)}")
     print("Load best model")
     search_checkpoint.load_best()
+    print("final model size:", pit_model.get_size())
+    print("final model MACs:", pit_model.get_macs())
     print("final architectural summary:")
     print(pit_model)
     test_metrics = evaluate(True, pit_model, criterion, test_dl, device)
