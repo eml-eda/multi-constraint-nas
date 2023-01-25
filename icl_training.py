@@ -141,6 +141,10 @@ def main(args):
     test_metrics = evaluate(False, exported_model, criterion, test_dl, device)
     print("Fine-tuning Test Set Loss:", test_metrics['loss'])
     print("Fine-tuning Test Set Accuracy:", test_metrics['acc'])
+    param_size = 0
+    for param in exported_model.parameters():
+        param_size += param.nelement() * param.element_size()
+    print("Fine-tuning Size:", param_size)
 
 
 if __name__ == '__main__':
