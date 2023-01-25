@@ -10,25 +10,25 @@ if [[ "$1" == "icl" ]]; then
     cd_size=( 1.3e-05 5.9e-06 3.8e-06 )
     latency_target=(2.0e+06 6.0e+06 1.0e+07 )
     cd_ops=( 1.3e-5 5.9e-6 3.8e-6 )
-    if [[ gpu == 0 ]]; then
+    if [[ $gpu == "0" ]]; then
         echo "Run on GPU 0"
         export CUDA_VISIBLE_DEVICES=0
         l="const"
         loss="abs" 
     fi
-    if [[ gpu == 1 ]]; then
+    if [[ $gpu == "1" ]]; then
         echo "Run on GPU 1"
         export CUDA_VISIBLE_DEVICES=1
         l="increasing"
         loss="abs" 
     fi
-    if [[ gpu == 2 ]]; then
+    if [[ $gpu == "2" ]]; then
         echo "Run on GPU 2"
         export CUDA_VISIBLE_DEVICES=2
         l="const"
         loss="max" 
     fi
-    if [[ gpu == 3 ]]; then
+    if [[ $gpu == "3" ]]; then
         echo "Run on GPU 3"
         export CUDA_VISIBLE_DEVICES=3
         l="increasing"
