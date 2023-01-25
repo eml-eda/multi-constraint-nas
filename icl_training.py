@@ -87,8 +87,8 @@ def main(args):
     earlystop = EarlyStopping(patience=20, mode='max')
     name = f"ck_icl_opt_{args.loss_type}_targets_{args.loss_elements}_{args.l}_size_{args.size_target}_lat_{args.latency_target}"
     search_checkpoint = CheckPoint('./search_checkpoints', pit_model, optimizer, 'max', fmt=name+'_{epoch:03d}.pt')
-    print("Initial model size:", pit_model.get_size())
-    print("Initial model MACs:", pit_model.get_macs())
+    print("Initial model size:", pit_model.get_size_binarized())
+    print("Initial model MACs:", pit_model.get_macs_binarized())
     increment_cd_size = (args.cd_size*99/100)/int(args.epochs/5)
     increment_cd_ops = (args.cd_ops*99/100)/int(args.epochs/5)
     for epoch in range(N_EPOCHS):
@@ -102,13 +102,13 @@ def main(args):
         scheduler.step()
         print("architectural summary:")
         print(pit_model)
-        print("model size:", pit_model.get_size())
-        print("model MACs:", pit_model.get_macs())
+        print("model size:", pit_model.get_size_binarized())
+        print("model MACs:", pit_model.get_macs_binarized())
         print(f"cd_size:  {min(args.cd_size/100 + increment_cd_size*epoch, args.cd_size)} cd_ops: {min(args.cd_ops/100 + increment_cd_ops*epoch, args.cd_ops)}")
     print("Load best model")
     search_checkpoint.load_best()
-    print("final model size:", pit_model.get_size())
-    print("final model MACs:", pit_model.get_macs())
+    print("final model size:", pit_model.get_size_binarized())
+    print("final model MACs:", pit_model.get_macs_binarized())
     print("final architectural summary:")
     print(pit_model)
     test_metrics = evaluate(True, pit_model, criterion, test_dl, device)
@@ -141,10 +141,15 @@ def main(args):
     test_metrics = evaluate(False, exported_model, criterion, test_dl, device)
     print("Fine-tuning Test Set Loss:", test_metrics['loss'])
     print("Fine-tuning Test Set Accuracy:", test_metrics['acc'])
+    print("Fine-tuning PLiNO size:", pit_model.get_size_binarized())
+    print("Fine-tuning PLiNO MACs:", pit_model.get_macs_binarized())
     param_size = 0
     for param in exported_model.parameters():
         param_size += param.nelement() * param.element_size()
     print("Fine-tuning Size:", param_size)
+    # from torchinfo import summary
+    # stats = summary(exported_model, input_example, verbose=0, mode='eval')
+    # stats.total_mult_adds
 
 
 if __name__ == '__main__':
