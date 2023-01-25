@@ -125,7 +125,7 @@ def main(args):
     optimizer = icl.get_default_optimizer(exported_model)
     scheduler = icl.get_default_scheduler(optimizer)
     name = f"ck_icl_opt_{args.loss_type}_targets_{args.loss_elements}_{args.l}_size_{args.size_target}_lat_{args.latency_target}"
-    finetune_checkpoint = CheckPoint('./finetuning_checkpoints', pit_model, optimizer, 'max', fmt=name+'_{epoch:03d}.pt')
+    finetune_checkpoint = CheckPoint('./finetuning_checkpoints', exported_model, optimizer, 'max', fmt=name+'_{epoch:03d}.pt')
     earlystop = EarlyStopping(patience=50, mode='max')
     for epoch in range(N_EPOCHS):
         metrics = train_one_epoch(
@@ -135,10 +135,10 @@ def main(args):
             finetune_checkpoint(epoch, metrics['val_acc'])
             if earlystop(metrics['val_acc']):
                 break
-    test_metrics = evaluate(False, exported_model, criterion, test_dl, device)
     finetune_checkpoint.load_best()
     name = f"best_final_ck_icl_opt_{args.loss_type}_targets_{args.loss_elements}_{args.l}_size_{args.size_target}_lat_{args.latency_target}.ckp"
     finetune_checkpoint.save('./finetuning_checkpoints/'+name)
+    test_metrics = evaluate(False, exported_model, criterion, test_dl, device)
     print("Fine-tuning Test Set Loss:", test_metrics['loss'])
     print("Fine-tuning Test Set Accuracy:", test_metrics['acc'])
 
