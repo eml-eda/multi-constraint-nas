@@ -26,8 +26,24 @@ def compute_layer_latency_GAP8(self):
         import pdb;pdb.set_trace()
         self.layers_macs.append(stats.total_mult_adds)
 
+def get_size_binarized(self) -> torch.Tensor:
+    """Method that returns the number of weights for the module
+    computed as a weighted sum of the number of weights of each layer.
 
-def get_latency_conv2D_GAP8_supernet(self) -> torch.Tensor:
+    :return: number of weights of the module (weighted sum)
+    :rtype: torch.Tensor
+    """
+    soft_alpha = torch.argmax(self.alpha, dim=0)
+
+    size = torch.tensor(0, dtype=torch.float32)
+    for i in range(self.n_layers):
+        var_size = torch.tensor(0, dtype=torch.float32)
+        for pl in cast(List[PITModule], self._pit_layers[i]):
+            var_size += pl.get_size()
+        size = size + (soft_alpha[i] * (self.layers_sizes[i] + var_size))
+    return size
+
+def get_latency_supernet(self) -> torch.Tensor:
     """Method that computes the number of MAC operations for the module
 
     :return: the number of MACs
@@ -37,7 +53,7 @@ def get_latency_conv2D_GAP8_supernet(self) -> torch.Tensor:
 
     latency = torch.tensor(0, dtype=torch.float32)
     for i in range(self.n_layers):
-        latency = latency + (soft_alpha[i] * (self.layers_latency[i]))
+        latency = latency + (soft_alpha[i] * (self.layers_macs[i]))
     return latency
 
 def get_latency_conv2D_GAP8(self) -> torch.Tensor:

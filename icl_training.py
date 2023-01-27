@@ -19,7 +19,7 @@ from pytorch_benchmarks.utils import AverageMeter, seed_all, accuracy, CheckPoin
 
 from utils import evaluate, train_one_epoch
 from hardware_model import get_latency_conv2D_GAP8, get_latency_Linear_GAP8, get_latency_conv2D_Diana, get_latency_Linear_Diana, get_latency_total
-from hardware_model import compute_layer_latency_GAP8
+from hardware_model import compute_layer_latency_GAP8, get_latency_supernet, get_size_binarized
 from models import ResNet8PITSN
 
 def main(args):
@@ -50,16 +50,21 @@ def main(args):
             PITSuperNetCombiner.compute_layers_macs = compute_layer_latency_GAP8
         elif args.hardware == "None":
             pass
+        PITSuperNetCombiner.get_size = get_size_binarized
         model = ResNet8PITSN()
         model = model.to(device)
+        PITSuperNet.get_macs_binarized = get_latency_supernet
+        PITSuperNet.get_latency = get_latency_supernet
+        PITSuperNet.get_size_binarized = PITSuperNet.get_size
 
     # Model Summary
     input_example = torch.unsqueeze(datasets[0][0][0], 0).to(device)
     input_shape = datasets[0][0][0].numpy().shape
+
     pit_model = PITSuperNet(model, input_shape=input_shape, autoconvert_layers = False)
-    print(summary(model, input_example, show_input=False, show_hierarchical=True))
     print(pit_model.get_macs())
 
+    print(summary(model, input_example, show_input=False, show_hierarchical=True))
     # Warmup Loop
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=0.1, weight_decay=1e-4)
@@ -104,8 +109,8 @@ def main(args):
         pit_model.train_rf = False
         pit_model.train_dilation = False
     elif args.model == "Supernet":
-        pit_model = PITSuperNet(model, input_shape=input_shape, autoconvert_layers = "False")
-        import pdb;pdb.set_trace()
+        pit_model = PITSuperNet(model, input_shape=input_shape, autoconvert_layers = False)
+        pit_model = pit_model.to(device)
     print(summary(pit_model, input_example, show_input=False, show_hierarchical=True))
 
     # Search Loop
