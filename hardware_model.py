@@ -6,55 +6,104 @@
 # TODO: Understand how model changes for deptwhise conv.
 #       At this time groups is not taken into account!
 
+from typing import List, cast, Iterator, Tuple, Any, Dict
 import math
 import torch
+import torch.nn as nn
 from flexnas.methods.pit.nn.binarizer import PITBinarizer
 from torchinfo import summary
+from flexnas.methods.pit.nn import PITModule
 
 def _floor(ch, N):
     return math.floor((ch + N - 1) / N)
 
-
-def compute_layer_latency_GAP8(self):
+def compute_layer_latency_GAP8(self, input_shape):
     """Computes the MACs of each possible layer of the PITSuperNetModule
     and stores the values in a list.
     It removes the MACs of the PIT modules contained in each layer because
     these MACs will be computed and re-added at training time.
     """
     for layer in self.sn_input_layers:
-        stats = summary(layer, self.input_shape, verbose=0, mode='eval')
-        import pdb;pdb.set_trace()
-        self.layers_macs.append(stats.total_mult_adds)
+        stats = summary(layer, input_shape, verbose=0, mode='eval')
+        try:
+            obj = layer[0]
+        except:
+            obj = layer
+        if obj.__class__.__name__ == "Conv2d":
+            ch_in = layer[0].weight.shape[1]
+            ch_out = layer[0].weight.shape[0]
+            kernel_size_x = layer[0].weight.shape[2]
+            kernel_size_y = layer[0].weight.shape[3]
+            iterations = _floor(input_shape[2], 2) * _floor(input_shape[3], 8)
+            im2col = kernel_size_x * kernel_size_y * ch_in * 2
+            matmul = _floor(ch_out, 4) * (5 + _floor(kernel_size_x * kernel_size_y * ch_in, 4) * (6 + 8) + 10)
+            latency = iterations * (im2col + matmul)
+        elif obj.__class__.__name__ == "Identity":
+            latency = 0
+        else:
+            import pdb;pdb.set_trace()
+        self.layers_macs.append(latency)
 
-def get_size_binarized(self) -> torch.Tensor:
+def compute_layer_latency_Diana(self, input_shape):
+    """Computes the MACs of each possible layer of the PITSuperNetModule
+    and stores the values in a list.
+    It removes the MACs of the PIT modules contained in each layer because
+    these MACs will be computed and re-added at training time.
+    """
+    for layer in self.sn_input_layers:
+        stats = summary(layer, input_shape, verbose=0, mode='eval')
+        try:
+            obj = layer[0]
+        except:
+            obj = layer
+        if obj.__class__.__name__ == "Conv2d":
+            ch_in = layer[0].weight.shape[1]
+            ch_out = layer[0].weight.shape[0]
+            kernel_size_x = layer[0].weight.shape[2]
+            kernel_size_y = layer[0].weight.shape[3]
+            groups = 1
+            cycles = _floor(ch_out / groups, 16) * ch_in * _floor(input_shape[2], 16) * input_shape[3] * kernel_size_x * kernel_size_y
+            # Works with both depthwise and normal conv:
+            cycles_load_store = input_shape[2] * input_shape[3] * (ch_out + ch_in) / 8
+            latency = (cycles + cycles_load_store)
+        elif obj.__class__.__name__ == "Identity":
+            latency = 0
+        else:
+            import pdb;pdb.set_trace()
+        self.layers_macs.append(latency)
+
+def get_size_binarized_supernet(self) -> torch.Tensor:
     """Method that returns the number of weights for the module
     computed as a weighted sum of the number of weights of each layer.
 
     :return: number of weights of the module (weighted sum)
     :rtype: torch.Tensor
     """
-    soft_alpha = torch.argmax(self.alpha, dim=0)
+    soft_alpha = nn.functional.softmax(self.alpha/self.temperature, dim=0)
 
     size = torch.tensor(0, dtype=torch.float32)
     for i in range(self.n_layers):
         var_size = torch.tensor(0, dtype=torch.float32)
         for pl in cast(List[PITModule], self._pit_layers[i]):
-            var_size += pl.get_size()
+            var_size = var_size + pl.get_size()
         size = size + (soft_alpha[i] * (self.layers_sizes[i] + var_size))
     return size
 
-def get_latency_supernet(self) -> torch.Tensor:
+def get_latency_binarized_supernet(self) -> torch.Tensor:
     """Method that computes the number of MAC operations for the module
 
     :return: the number of MACs
     :rtype: torch.Tensor
     """
-    soft_alpha = torch.argmax(self.alpha, dim=0)
+    soft_alpha = nn.functional.softmax(self.alpha/self.temperature, dim=0)
 
-    latency = torch.tensor(0, dtype=torch.float32)
+    macs = torch.tensor(0, dtype=torch.float32)
     for i in range(self.n_layers):
-        latency = latency + (soft_alpha[i] * (self.layers_macs[i]))
-    return latency
+        var_macs = torch.tensor(0, dtype=torch.float32)
+        for pl in cast(List[PITModule], self._pit_layers[i]):
+            var_macs = var_macs + pl.get_macs()
+        macs = macs + (soft_alpha[i] * (self.layers_macs[i] + var_macs))
+    return macs
 
 def get_latency_conv2D_GAP8(self) -> torch.Tensor:
     iterations = _floor(self.out_height, 2) * _floor(self.out_width, 8)
