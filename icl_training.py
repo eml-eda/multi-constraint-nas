@@ -4,6 +4,7 @@ from typing import Dict
 import math
 
 from pytorch_model_summary import summary
+from torchinfo import summary as summ
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
@@ -23,10 +24,6 @@ from hardware_model import get_latency_conv2D_GAP8, get_latency_Linear_GAP8, get
 from hardware_model import compute_layer_latency_GAP8, compute_layer_latency_Diana, get_latency_binarized_supernet, get_size_binarized_supernet
 from models import ResNet8PITSN
 
-
-def anneal_temperature(temperature):
-    # FbNetV2-like annealing
-    return temperature * math.exp(-0.045)
 
 def main(args):
     DATA_DIR = args.data_dir
@@ -72,7 +69,6 @@ def main(args):
             pass
         PITSuperNetCombiner.get_size = get_size_binarized_supernet
         PITSuperNetCombiner.get_macs = get_latency_binarized_supernet
-        setattr(PITSuperNetCombiner, "temperature", 1)
         model = ResNet8PITSN()
         model = model.to(device)
         PITSuperNet.get_macs_binarized = PITSuperNet.get_macs
@@ -82,10 +78,6 @@ def main(args):
         # Model Summary
         input_example = torch.unsqueeze(datasets[0][0][0], 0).to(device)
         input_shape = datasets[0][0][0].numpy().shape
-        pit_model = PITSuperNet(model, input_shape=input_shape, autoconvert_layers = False)
-        pit_model = pit_model.to(device)
-        print("Initial model size:", pit_model.get_size_binarized())
-        print("Initial model MACs:", pit_model.get_macs_binarized())
 
     print(summary(model, input_example, show_input=False, show_hierarchical=True))
     # Warmup Loop
@@ -142,14 +134,17 @@ def main(args):
     print("Initial model MACs/cycle:", pit_model.get_macs_binarized()/pit_model.get_latency())
     increment_cd_size = (args.cd_size*99/100)/int(args.epochs/10)
     increment_cd_ops = (args.cd_ops*99/100)/int(args.epochs/10)
+    temp = 1
     for epoch in range(N_EPOCHS):
         metrics = train_one_epoch(
             epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, increment_cd_size, increment_cd_ops)
-
         if args.model == "Supernet":
+            temp = temp * math.exp(-0.045)
+            pit_model.update_softmax_temperature(temp)
             for module in pit_model.modules(): 
                 if isinstance(module, PITSuperNetCombiner):
-                    module.temperature = anneal_temperature(module.temperature)
+                    print(nn.functional.softmax(module.alpha/module.softmax_temperature, dim=0))
+                    print(module.layers_sizes)
         if epoch > 50:
             search_checkpoint(epoch, metrics['val_acc'])
             if earlystop(metrics['val_acc']):

@@ -79,7 +79,7 @@ def get_size_binarized_supernet(self) -> torch.Tensor:
     :return: number of weights of the module (weighted sum)
     :rtype: torch.Tensor
     """
-    soft_alpha = nn.functional.softmax(self.alpha/self.temperature, dim=0)
+    soft_alpha = nn.functional.softmax(self.alpha/self.softmax_temperature, dim=0)
 
     size = torch.tensor(0, dtype=torch.float32)
     for i in range(self.n_layers):
@@ -95,7 +95,7 @@ def get_latency_binarized_supernet(self) -> torch.Tensor:
     :return: the number of MACs
     :rtype: torch.Tensor
     """
-    soft_alpha = nn.functional.softmax(self.alpha/self.temperature, dim=0)
+    soft_alpha = nn.functional.softmax(self.alpha/self.softmax_temperature, dim=0)
 
     macs = torch.tensor(0, dtype=torch.float32)
     for i in range(self.n_layers):
