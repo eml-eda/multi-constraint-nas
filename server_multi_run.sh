@@ -15,16 +15,33 @@ if [[ "$1" == "icl" ]]; then
     size_target=( 2.0e+04 4.0e+04 6.0e+04 )
     cd_size=( 1.3e-05 5.9e-06 3.8e-06 )
     if [[ "$3" == "GAP8" ]]; then
-    latency_target=( 1.0e+05 4.0e+05 7.0e+05 )
-    cd_ops=( 5.e-5 5e-8 5e-9 )
+        latency_target=( 1.0e+05 4.0e+05 7.0e+05 )
+        if [[ "$4" == "PIT" ]]; then
+            cd_ops=( 5.e-5 5e-8 5e-9 )
+        fi
+        if [[ "$4" == "Supernet" ]]; then
+            cd_ops=( 5.e-8 5e-11 5e-12 )
+        fi
     fi
     if [[ "$3" == "Diana" ]]; then
-    latency_target=( 1.0e+04 4.0e+04 7.0e+04 )
-    cd_ops=( 5.e-4 5e-7 5e-8 )
+        latency_target=( 1.0e+04 4.0e+04 7.0e+04 )
+        cd_ops=( 5.e-4 5e-7 5e-8 )
+        if [[ "$4" == "PIT" ]]; then
+            cd_ops=( 5.e-4 5e-7 5e-8 )
+        fi
+        if [[ "$4" == "Supernet" ]]; then
+            cd_ops=( 5.e-7 5e-10 5e-11 )
+        fi
     fi
     if [[ "$3" == "None" ]]; then
-    latency_target=( 2.0e+06 6.0e+06 1.0e+07 )
-    cd_ops=( 1.e-7 5e-9 1e-10 )
+        latency_target=( 2.0e+06 6.0e+06 1.0e+07 )
+        cd_ops=( 1.e-7 5e-9 1e-10 )
+        if [[ "$4" == "PIT" ]]; then
+            cd_ops=( 1.e-7 5e-9 1e-10 )
+        fi
+        if [[ "$4" == "Supernet" ]]; then
+            cd_ops=( 1.e-10 5e-12 1e-13 )
+        fi
     fi
     if [[ $gpu == "0" ]]; then
         echo "Run on GPU 0"

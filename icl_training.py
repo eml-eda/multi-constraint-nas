@@ -136,16 +136,17 @@ def main(args):
     increment_cd_ops = (args.cd_ops*99/100)/int(args.epochs/10)
     temp = 1
     for epoch in range(N_EPOCHS):
-        metrics = train_one_epoch(
-            epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, increment_cd_size, increment_cd_ops)
+        # metrics = train_one_epoch(
+        #     epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, increment_cd_size, increment_cd_ops)
         if args.model == "Supernet":
-            temp = temp * math.exp(-0.045)
+            temp = temp * math.exp(-0.1)
             pit_model.update_softmax_temperature(temp)
             for module in pit_model.modules(): 
                 if isinstance(module, PITSuperNetCombiner):
                     print(nn.functional.softmax(module.alpha/module.softmax_temperature, dim=0))
-                    print(module.layers_sizes)
-        if epoch > 50:
+                    print(module.softmax_temperature)
+                    break
+        if epoch > 60:
             search_checkpoint(epoch, metrics['val_acc'])
             if earlystop(metrics['val_acc']):
                 break
