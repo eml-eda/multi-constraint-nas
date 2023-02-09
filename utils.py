@@ -83,28 +83,32 @@ def train_one_epoch(
             loss_task = criterion(output, target)
             
             if search:
-                # Compute size-complexity loss with constraint
-                if args.loss_type == "abs":
-                    if "mem" in args.loss_elements:
-                        loss_reg = cd_size * torch.abs((model.get_size_binarized() - args.size_target))
-                    else:
-                        loss_reg = cd_size * model.get_size_binarized()
-                    if "lat" in args.loss_elements:
-                        loss_ops = cd_ops * torch.abs((model.get_latency() - args.latency_target))
-                    else:
-                        loss_ops = cd_ops * model.get_latency()
-                elif args.loss_type == "max":
-                    if "mem" in args.loss_elements:
-                        loss_reg = cd_size * torch.max((model.get_size_binarized() - args.size_target), torch.FloatTensor([0]).to(device))[0]
-                    else:
-                        loss_reg = cd_size * model.get_size_binarized()
-                    if "lat" in args.loss_elements:
-                        loss_ops = cd_ops * torch.max((model.get_latency() - args.latency_target), torch.FloatTensor([0]).to(device))[0]
-                    else:
-                        loss_ops = cd_ops * model.get_latency()
-                loss = loss_task + loss_ops + loss_reg
-                # loss = loss_task + loss_reg
-                # loss = loss_reg + 0.00000001 * loss_task
+                # Compute size-complexity loss
+                if args.loss_type == "abs" and "mem_constraint" in args.loss_elements:
+                    loss_reg = cd_size * torch.abs((model.get_size_binarized() - args.size_target))
+                elif args.loss_type == "max" and "mem_constraint" in args.loss_elements:
+                    loss_reg = cd_size * torch.max((model.get_size_binarized() - args.size_target), torch.FloatTensor([0]).to(device))[0]
+                elif "mem_obj" in args.loss_elements:
+                    loss_reg = cd_size * model.get_size_binarized()
+                elif "mem" not in args.loss_elements:
+                    loss_reg = 0
+
+                # Compute latency-complexity loss
+                if args.loss_type == "abs" and "lat_constraint" in args.loss_elements:
+                    loss_ops = cd_ops * torch.abs((model.get_latency() - args.latency_target))
+                elif args.loss_type == "max" and "lat_constraint" in args.loss_elements:
+                    loss_ops = cd_ops * torch.max((model.get_latency() - args.latency_target), torch.FloatTensor([0]).to(device))[0]
+                elif "lat_obj" in args.loss_elements:
+                    loss_ops = cd_ops * model.get_latency()
+                elif "lat" not in args.loss_elements:
+                    loss_ops = 0
+
+                if args.model == "PIT" or args.gumbel == "True":
+                    loss_icv = 0
+                elif args.model == "Supernet":
+                    loss_icv = 0.5 * model.get_total_icv()
+
+                loss = loss_task + loss_ops + loss_reg + loss_icv
             else:
 
                 loss = loss_task

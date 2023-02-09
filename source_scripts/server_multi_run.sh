@@ -13,7 +13,7 @@ latency_target_GAP8=( 1.0e+05 4.0e+05 7.0e+05 )
 
 if [[ "$1" == "icl" ]]; then
     size_target=( 2.0e+04 4.0e+04 6.0e+04 )
-    cd_size=( 1.3e-05 5.9e-06 3.8e-06 )
+    cd_size=( 4.0e-05 3.6e-05 3.6e-05 )
     if [[ "$3" == "GAP8" ]]; then
         latency_target=( 1.0e+05 4.0e+05 7.0e+05 )
         if [[ "$4" == "PIT" ]]; then
@@ -73,6 +73,7 @@ if [[ "$1" == "icl" ]]; then
         do
             for n in "${!latency_target[@]}"
             do
+                echo ${size_target[m]} ${latency_target[n]} ${elements[k]} 
                 source run_flexnas.sh ${benchmark} ${cd_size[m]} ${size_target[m]} ${latency_target[n]} ${elements[k]} ${loss} ${cd_ops[n]} ${l} ${model} ${hardware}
             done
         done

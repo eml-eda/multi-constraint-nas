@@ -5,7 +5,7 @@ from flexnas.methods.pit_supernet import PITSuperNetModule
 
 
 class ConvBlock(torch.nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=2, padding=1):
+    def __init__(self, in_channels, out_channels, kernel_size=3, stride=2, padding=1, gumbel = False):
         super().__init__()
         # self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, stride=stride,
         #                         padding=padding, bias=False)
@@ -31,7 +31,7 @@ class ConvBlock(torch.nn.Module):
                 nn.ReLU()
             ),
             # nn.Identity()
-        ])
+        ], gumbel_softmax = gumbel, hard_softmax = gumbel)
         # nn.init.kaiming_normal_(self.conv1.weight)
         it = self.conv1[0].children()
         nn.init.kaiming_normal_(cast(nn.Conv2d, next(it)).weight)
@@ -50,7 +50,7 @@ class ConvBlock(torch.nn.Module):
 
 
 class ResNet8PITSN(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, gumbel = False):
         super().__init__()
 
         # Resnet v1 parameters
@@ -62,9 +62,9 @@ class ResNet8PITSN(torch.nn.Module):
 
         # First stack
         self.inputblock = ConvBlock(in_channels=3, out_channels=16,
-                                    kernel_size=3, stride=1, padding=1)
+                                    kernel_size=3, stride=1, padding=1, gumbel = gumbel)
         self.convblock1 = ConvBlock(in_channels=16, out_channels=16,
-                                    kernel_size=3, stride=1, padding=1)
+                                    kernel_size=3, stride=1, padding=1, gumbel = gumbel)
 
         # self.conv1 = nn.Conv2d(16, 16, kernel_size=3, stride=1, padding=1)
         self.conv1 = PITSuperNetModule([
@@ -84,7 +84,7 @@ class ResNet8PITSN(torch.nn.Module):
                 nn.BatchNorm2d(16),
             ),
             nn.Identity()
-        ])
+        ], gumbel_softmax = gumbel, hard_softmax = gumbel)
         # nn.init.kaiming_normal_(self.conv1.weight)
         it = self.conv1[0].children()
         nn.init.kaiming_normal_(cast(nn.Conv2d, next(it)).weight)
@@ -98,7 +98,7 @@ class ResNet8PITSN(torch.nn.Module):
 
         # Second stack
         self.convblock2 = ConvBlock(in_channels=16, out_channels=32,
-                                    kernel_size=3, stride=2, padding=1)
+                                    kernel_size=3, stride=2, padding=1, gumbel = gumbel)
 
         # self.conv2y = nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1)
         self.conv2y = PITSuperNetModule([
@@ -118,7 +118,7 @@ class ResNet8PITSN(torch.nn.Module):
                 nn.BatchNorm2d(32)
             ),
             nn.Identity()
-        ])
+        ], gumbel_softmax = gumbel, hard_softmax = gumbel)
         # nn.init.kaiming_normal_(self.conv2y.weight)
         it = self.conv2y[0].children()
         nn.init.kaiming_normal_(cast(nn.Conv2d, next(it)).weight)
@@ -135,7 +135,7 @@ class ResNet8PITSN(torch.nn.Module):
 
         # Third stack
         self.convblock3 = ConvBlock(in_channels=32, out_channels=64,
-                                    kernel_size=3, stride=2, padding=1)
+                                    kernel_size=3, stride=2, padding=1, gumbel = gumbel)
 
         # self.conv3y = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
         self.conv3y = PITSuperNetModule([
@@ -155,7 +155,7 @@ class ResNet8PITSN(torch.nn.Module):
                 nn.BatchNorm2d(64)
             ),
             nn.Identity()
-        ])
+        ], gumbel_softmax = gumbel, hard_softmax = gumbel)
         # nn.init.kaiming_normal_(self.conv3y.weight)
         it = self.conv3y[0].children()
         nn.init.kaiming_normal_(cast(nn.Conv2d, next(it)).weight)

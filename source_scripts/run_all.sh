@@ -17,13 +17,4 @@
 # source server_multi_run.sh icl 3 GAP8 PIT &
 # source server_multi_run.sh icl 3 None PIT &
 
-
-source server_multi_run.sh icl 0 None PIT &
-source server_multi_run.sh icl 1 None PIT &
-source server_multi_run.sh icl 2 None PIT &
-source server_multi_run.sh icl 3 None PIT &
-
-source server_multi_run.sh icl 0 None Supernet &
-source server_multi_run.sh icl 1 None Supernet &
-source server_multi_run.sh icl 2 None Supernet &
-source server_multi_run.sh icl 3 None Supernet &
+source server_multi_run.sh icl 0 $1 $2 &

@@ -69,7 +69,11 @@ def main(args):
             pass
         PITSuperNetCombiner.get_size = get_size_binarized_supernet
         PITSuperNetCombiner.get_macs = get_latency_binarized_supernet
-        model = ResNet8PITSN()
+        if args.gumbel == "True":
+            model = ResNet8PITSN(gumbel = True)
+        else:
+            model = ResNet8PITSN(gumbel = False)
+
         model = model.to(device)
         PITSuperNet.get_macs_binarized = PITSuperNet.get_macs
         PITSuperNet.get_latency = PITSuperNet.get_macs
@@ -95,7 +99,7 @@ def main(args):
         print("Running warmup")
 
     if not skip_warmup:
-        for epoch in range(N_EPOCHS):
+        for epoch in range(50):
             metrics = train_one_epoch(
                 epoch, False, model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, 1, 1)
             scheduler.step()
@@ -125,7 +129,7 @@ def main(args):
     optimizer = torch.optim.Adam(param_dicts, lr=0.001, weight_decay=1e-4)
     scheduler = icl.get_default_scheduler(optimizer)
     # Set EarlyStop with a patience of 20 epochs and CheckPoint
-    earlystop = EarlyStopping(patience=35, mode='max')
+    earlystop = EarlyStopping(patience=20, mode='max')
     name = f"ck_icl_opt_{args.model}_{args.loss_type}_targets_{args.loss_elements}_{args.l}_size_{args.size_target}_lat_{args.latency_target}"
     search_checkpoint = CheckPoint('./search_checkpoints', pit_model, optimizer, 'max', fmt=name+'_{epoch:03d}.pt')
     print("Initial model size:", pit_model.get_size_binarized())
@@ -136,17 +140,16 @@ def main(args):
     increment_cd_ops = (args.cd_ops*99/100)/int(args.epochs/10)
     temp = 1
     for epoch in range(N_EPOCHS):
-        # metrics = train_one_epoch(
-        #     epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, increment_cd_size, increment_cd_ops)
+        metrics = train_one_epoch(
+            epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, increment_cd_size, increment_cd_ops)
         if args.model == "Supernet":
-            temp = temp * math.exp(-0.1)
+            # temp = temp * math.exp(-0.1)
             pit_model.update_softmax_temperature(temp)
             for module in pit_model.modules(): 
                 if isinstance(module, PITSuperNetCombiner):
                     print(nn.functional.softmax(module.alpha/module.softmax_temperature, dim=0))
                     print(module.softmax_temperature)
-                    break
-        if epoch > 60:
+        if epoch > 35:
             search_checkpoint(epoch, metrics['val_acc'])
             if earlystop(metrics['val_acc']):
                 break
@@ -183,7 +186,7 @@ def main(args):
     scheduler = icl.get_default_scheduler(optimizer)
     name = f"ck_icl_opt_{args.model}_{args.loss_type}_targets_{args.loss_elements}_{args.l}_size_{args.size_target}_lat_{args.latency_target}"
     finetune_checkpoint = CheckPoint('./finetuning_checkpoints', exported_model, optimizer, 'max', fmt=name+'_{epoch:03d}.pt')
-    earlystop = EarlyStopping(patience=35, mode='max')
+    earlystop = EarlyStopping(patience=20, mode='max')
     for epoch in range(N_EPOCHS):
         metrics = train_one_epoch(
             epoch, False, exported_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, increment_cd_size, increment_cd_ops)
@@ -221,12 +224,14 @@ if __name__ == '__main__':
     parser.add_argument('--loss_type', type=str, default="max",
                         help='abs, max')
     parser.add_argument('--loss_elements', type=str, default="mem",
-                        help='loss type: mem, lat, mem+lat')
+                        help='loss type: mem_constraint, mem_obj, lat_constraint, lat_obj,and fusion')
     parser.add_argument('--l', type=str, default="const",
                         help='const, increasing')
     parser.add_argument('--model', type=str, default="const",
                         help='PIT, Supernet')
     parser.add_argument('--hardware', type=str, default="const",
                         help='GAP8, Diana, None')
+    parser.add_argument('--gumbel', type=str, default="False",
+                        help='True or False')
     args = parser.parse_args()
     main(args)
