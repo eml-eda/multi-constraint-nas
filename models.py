@@ -287,11 +287,6 @@ class DSCnnSN(torch.nn.Module):
         # self.bn21 = nn.BatchNorm2d(64, momentum=0.99)
         # self.relu21 = nn.ReLU()
 
-        self.conv2 = nn.Conv2d(
-            in_channels=64, out_channels=64, kernel_size=1, stride=1, padding=0)
-        self.bn22 = nn.BatchNorm2d(64, momentum=0.99)
-        self.relu22 = nn.ReLU()
-
         # Third layer of separable depthwise conv2d
         '''
         self.depthwise3 = nn.Conv2d(
@@ -322,11 +317,6 @@ class DSCnnSN(torch.nn.Module):
         ], gumbel_softmax = gumbel, hard_softmax = gumbel)
         # self.bn31 = nn.BatchNorm2d(64, momentum=0.99)
         # self.relu31 = nn.ReLU()
-
-        self.conv3 = nn.Conv2d(
-            in_channels=64, out_channels=64, kernel_size=1, stride=1, padding=0)
-        self.bn32 = nn.BatchNorm2d(64, momentum=0.99)
-        self.relu32 = nn.ReLU()
 
         # Fourth layer of separable depthwise conv2d
         '''
@@ -359,11 +349,6 @@ class DSCnnSN(torch.nn.Module):
         # self.bn41 = nn.BatchNorm2d(64, momentum=0.99)
         # self.relu41 = nn.ReLU()
 
-        self.conv4 = nn.Conv2d(
-            in_channels=64, out_channels=64, kernel_size=1, stride=1, padding=0)
-        self.bn42 = nn.BatchNorm2d(64, momentum=0.99)
-        self.relu42 = nn.ReLU()
-
         self.dropout2 = nn.Dropout(p=0.4)
         self.avgpool = torch.nn.AvgPool2d((25, 5))
         self.out = nn.Linear(64, 12)
@@ -385,24 +370,18 @@ class DSCnnSN(torch.nn.Module):
         # x = self.pointwise2(x)
         x = self.depthpoint2(x)
         # x = self.relu21(self.bn21(x))
-        x = self.conv2(x)
-        x = self.relu22(self.bn22(x))
 
         # Third layer of separable depthwise conv2d
         # x = self.depthwise3(x)
         # x = self.pointwise3(x)
         x = self.depthpoint3(x)
         # x = self.relu31(self.bn31(x))
-        x = self.conv3(x)
-        x = self.relu32(self.bn32(x))
 
         # Fourth layer of separable depthwise conv2d
         # x = self.depthwise4(x)
         # x = self.pointwise4(x)
         x = self.depthpoint4(x)
         # x = self.relu41(self.bn41(x))
-        x = self.conv4(x)
-        x = self.relu42(self.bn42(x))
 
         x = self.dropout2(x)
         x = self.avgpool(x)
