@@ -1,14 +1,11 @@
 import argparse
 import pathlib
 from typing import Dict
-import math
 
 from pytorch_model_summary import summary
 from torchinfo import summary as summ
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
-from tqdm import tqdm
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR
 
@@ -24,7 +21,6 @@ from hardware_model import get_latency_conv2D_GAP8, get_latency_Linear_GAP8, get
 from hardware_model import compute_layer_latency_GAP8, compute_layer_latency_Diana, get_latency_binarized_supernet, get_size_binarized_supernet
 from models import ResNet8PITSN
 
-
 def main(args):
     DATA_DIR = args.data_dir
     N_EPOCHS = args.epochs
@@ -39,8 +35,11 @@ def main(args):
     # Get the Data
     data_dir = DATA_DIR
     datasets = icl.get_data(data_dir=data_dir)
+    datasets2 = icl.get_data(data_dir=data_dir, perf_samples=False)
     dataloaders = icl.build_dataloaders(datasets)
+    dataloaders2 = icl.build_dataloaders(datasets2)
     train_dl, val_dl, test_dl = dataloaders
+    _, _, test_dl_all = dataloaders2
 
     # Get the Model
     if args.model == "PIT":
@@ -84,6 +83,7 @@ def main(args):
         input_shape = datasets[0][0][0].numpy().shape
 
     print(summary(model, input_example, show_input=False, show_hierarchical=True))
+
     # Warmup Loop
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.SGD(model.parameters(), lr=0.1, weight_decay=1e-4)
@@ -99,7 +99,7 @@ def main(args):
         print("Running warmup")
 
     if not skip_warmup:
-        for epoch in range(50):
+        for epoch in range(100):
             metrics = train_one_epoch(
                 epoch, False, model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, 1, 1)
             scheduler.step()
@@ -108,8 +108,13 @@ def main(args):
         warmup_checkpoint.save(f'./warmup_checkpoints/final_best_warmup_icl_{args.model}.ckp')
 
     test_metrics = evaluate(False, model, criterion, test_dl, device)
+    test_metrics2 = evaluate(False, model, criterion, test_dl_all, device)
+    
     print("Warmup Test Set Loss:", test_metrics['loss'])
-    print("Warmup Test Set Accuracy:", test_metrics['acc'])
+    print("Warmup Test Set Accuracy:", test_metrics2['acc'])
+    print("Warmup Test Set ReducedAccuracy:", test_metrics['acc'])
+
+    # Convert the model to PIT
     if args.model == "PIT":
         pit_model = PIT(model, input_shape=input_shape)
         pit_model = pit_model.to(device)
@@ -136,12 +141,12 @@ def main(args):
     print("Initial model MACs:", pit_model.get_macs_binarized())
     print("Initial model latency:", pit_model.get_latency())
     print("Initial model MACs/cycle:", pit_model.get_macs_binarized()/pit_model.get_latency())
-    increment_cd_size = (args.cd_size*99/100)/int(args.epochs/10)
-    increment_cd_ops = (args.cd_ops*99/100)/int(args.epochs/10)
+    increment_cd_size = (args.cd_size*99/100)/int(N_EPOCHS/2)
+    increment_cd_ops = (args.cd_ops*99/100)/int(N_EPOCHS/2)
     temp = 1
     for epoch in range(N_EPOCHS):
         metrics = train_one_epoch(
-            epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, increment_cd_size, increment_cd_ops)
+            epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl_all, device, args, increment_cd_size, increment_cd_ops)
         if args.model == "Supernet":
             # temp = temp * math.exp(-0.1)
             pit_model.update_softmax_temperature(temp)
@@ -149,7 +154,7 @@ def main(args):
                 if isinstance(module, PITSuperNetCombiner):
                     print(nn.functional.softmax(module.alpha/module.softmax_temperature, dim=0))
                     print(module.softmax_temperature)
-        if epoch > 35:
+        if epoch > int(N_EPOCHS/2+N_EPOCHS/4):
             search_checkpoint(epoch, metrics['val_acc'])
             if earlystop(metrics['val_acc']):
                 break
@@ -172,8 +177,11 @@ def main(args):
     print("final architectural summary:")
     print(pit_model)
     test_metrics = evaluate(True, pit_model, criterion, test_dl, device)
+    test_metrics2 = evaluate(True, pit_model, criterion, test_dl_all, device)
+    
     print("Search Test Set Loss:", test_metrics['loss'])
-    print("Search Test Set Accuracy:", test_metrics['acc'])
+    print("Search Test Set Accuracy:", test_metrics2['acc'])
+    print("Search Test Set ReducedAccuracy:", test_metrics['acc'])
 
     # Convert pit model into pytorch model
     exported_model = pit_model.arch_export()
@@ -189,7 +197,7 @@ def main(args):
     earlystop = EarlyStopping(patience=20, mode='max')
     for epoch in range(N_EPOCHS):
         metrics = train_one_epoch(
-            epoch, False, exported_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, increment_cd_size, increment_cd_ops)
+            epoch, False, exported_model, criterion, optimizer, train_dl, val_dl, test_dl_all, device, args, increment_cd_size, increment_cd_ops)
         scheduler.step()
         print("epoch:", epoch)
         if epoch > 0:
@@ -200,8 +208,10 @@ def main(args):
     name = f"best_final_ck_icl_opt_{args.model}_{args.loss_type}_targets_{args.loss_elements}_{args.l}_size_{args.size_target}_lat_{args.latency_target}.ckp"
     finetune_checkpoint.save('./finetuning_checkpoints/'+name)
     test_metrics = evaluate(False, exported_model, criterion, test_dl, device)
+    test_metrics2 = evaluate(False, exported_model, criterion, test_dl_all, device)
     print("Fine-tuning Test Set Loss:", test_metrics['loss'])
-    print("Fine-tuning Test Set Accuracy:", test_metrics['acc'])
+    print("Fine-tuning Test Set Accuracy:", test_metrics2['acc'])
+    print("Fine-tuning Test Set ReducedAccuracy:", test_metrics['acc'])
     print("Fine-tuning PLiNIO size:", pit_model.get_size_binarized())
     print("Fine-tuning PLiNIO MACs:", pit_model.get_macs_binarized())
     print("Fine-tuning PLiNIO latency:", pit_model.get_latency())
