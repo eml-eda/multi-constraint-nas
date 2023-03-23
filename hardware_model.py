@@ -38,8 +38,15 @@ def compute_layer_latency_GAP8(self, input_shape):
             im2col = kernel_size_x * kernel_size_y * ch_in * 2
             matmul = _floor(ch_out, 4) * (5 + _floor(kernel_size_x * kernel_size_y * ch_in, 4) * (6 + 8) + 10)
             latency = iterations * (im2col + matmul)
+            if layer[0].groups > 1:
+                # 1 MAC/cycle
+                latency = 4 * _floor(ch_out, 4) * input_shape[2] * input_shape[3] * kernel_size_x * kernel_size_y
         elif obj.__class__.__name__ == "Identity":
             latency = 0
+        elif obj.__class__.__name__ == "Linear":
+            ch_in = layer[0].weight.shape[1]
+            ch_out = layer[0].weight.shape[0]
+            latency = _floor(ch_in, 2) * _floor(ch_out, 4)
         else:
             import pdb;pdb.set_trace()
         self.layers_macs.append(latency)
@@ -114,6 +121,9 @@ def get_latency_conv2D_GAP8(self) -> torch.Tensor:
     im2col = self.kernel_size[0] * self.kernel_size[1] * ch_in * 2
     matmul = _floor(ch_out, 4) * (5 + _floor(self.kernel_size[0] * self.kernel_size[1] * ch_in, 4) * (6 + 8) + 10)
     latency = iterations * (im2col + matmul)
+    if self.groups > 1:
+        # 1 MAC/cycle
+        latency = 4 * _floor(ch_out, 4) * self.out_height * self.out_width * self.kernel_size[0] * self.kernel_size[1]
     return latency
 
 def get_latency_Linear_GAP8(self) -> torch.Tensor:
@@ -123,7 +133,7 @@ def get_latency_Linear_GAP8(self) -> torch.Tensor:
     cout_mask = self.out_features_masker.theta
     ch_out = torch.sum(PITBinarizer.apply(cout_mask, self._binarization_threshold))
     # Finally compute cost
-    latency = ch_in * ch_out
+    latency = _floor(ch_in, 2) * _floor(ch_out, 4)
     return latency
 
 def get_latency_conv2D_Diana(self) -> torch.Tensor:

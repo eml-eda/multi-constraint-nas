@@ -63,6 +63,7 @@ def train_one_epoch(
     avgloss = AverageMeter('2.5f')
     avglosstask = AverageMeter('2.5f')
     avglossreg = AverageMeter('2.5f')
+    avglossops = AverageMeter('2.5f')
     step = 0
     if args.l == "increasing":
         cd_size = min(args.cd_size/100 + increment_cd_size*epoch, args.cd_size)
@@ -97,6 +98,7 @@ def train_one_epoch(
                 if args.loss_type == "abs" and "lat_constraint" in args.loss_elements:
                     loss_ops = cd_ops * torch.abs((model.get_latency() - args.latency_target))
                 elif args.loss_type == "max" and "lat_constraint" in args.loss_elements:
+                    import pdb;pdb.set_trace()
                     loss_ops = cd_ops * torch.max((model.get_latency() - args.latency_target), torch.FloatTensor([0]).to(device))[0]
                 elif "lat_obj" in args.loss_elements:
                     loss_ops = cd_ops * model.get_latency()
@@ -113,6 +115,7 @@ def train_one_epoch(
 
                 loss = loss_task
                 loss_reg = 0
+                loss_ops = 0
             
             optimizer.zero_grad()
             loss.backward()
@@ -122,10 +125,12 @@ def train_one_epoch(
             avgloss.update(loss, audio.size(0))
             avglosstask.update(loss_task, audio.size(0))
             avglossreg.update(loss_reg, audio.size(0))
+            avglossops.update(loss_ops, audio.size(0))
             if step % 100 == 99:
                 tepoch.set_postfix({'loss': avgloss,
                                     'loss_task': avglosstask,
                                     'loss_reg': avglossreg,
+                                    'loss_ops': avglossops,
                                     'acc': avgacc})
         val_metrics = evaluate(search, model, criterion, val_dl, device)
         val_metrics = {'val_' + k: v for k, v in val_metrics.items()}
@@ -135,11 +140,12 @@ def train_one_epoch(
             'loss': avgloss.get(),
             'loss_task': avglosstask.get(),
             'loss_reg': avglossreg.get(),
+            'loss_ops': avglossops.get(),
             'acc': avgacc.get(),
         }
         final_metrics.update(val_metrics)
         tepoch.set_postfix(final_metrics)
         tepoch.close()
-        print(val_metrics)
+        print(final_metrics)
         print(test_metrics)
         return final_metrics

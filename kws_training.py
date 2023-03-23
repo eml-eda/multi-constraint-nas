@@ -22,6 +22,18 @@ from hardware_model import compute_layer_latency_GAP8, compute_layer_latency_Dia
 from models import DSCnnSN
 import math 
 
+def adjust_learning_rate(optimizer, epoch):
+    if epoch < 50:
+        lr = 1e-2
+    elif epoch < 100:
+        lr = 5e-3
+    elif epoch < 150:
+        lr = 2.5e-3
+    else:
+        lr = 1e-3
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+        
 def main(args):
     DATA_DIR = args.data_dir
     N_EPOCHS = args.epochs
@@ -31,7 +43,7 @@ def main(args):
     print("Training on:", device)
 
     # Ensure determinstic execution
-    seed_all(seed=14)
+    seed_all(seed=2023)
 
     # Get the Data
     data_dir = DATA_DIR
@@ -97,9 +109,10 @@ def main(args):
         print("Running warmup")
 
     if not skip_warmup:
-        for epoch in range(30):
+        for epoch in range(N_EPOCHS):
             metrics = train_one_epoch(
                 epoch, False, model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, 1, 1)
+            adjust_learning_rate(optimizer, epoch)
             scheduler.step()
             warmup_checkpoint(epoch, metrics['val_acc'])
         warmup_checkpoint.load_best()
@@ -139,9 +152,26 @@ def main(args):
     increment_cd_size = (args.cd_size*99/100)/int(N_EPOCHS/2)
     increment_cd_ops = (args.cd_ops*99/100)/int(N_EPOCHS/2)
     temp = 1
+    
+
     for epoch in range(N_EPOCHS):
-        metrics = train_one_epoch(
-            epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, increment_cd_size, increment_cd_ops)
+        if args.model == "Supernet":
+            for param in pit_model.net_parameters():
+                param.requires_grad = True
+            for param in pit_model.nas_parameters():
+                param.requires_grad = False
+            metrics = train_one_epoch(
+                epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, increment_cd_size, increment_cd_ops)
+            for param in pit_model.net_parameters():
+                param.requires_grad = False
+            for param in pit_model.nas_parameters():
+                param.requires_grad = True
+            _ = train_one_epoch(
+                epoch, True, pit_model, criterion, optimizer, val_dl, val_dl, test_dl, device, args, increment_cd_size, increment_cd_ops)
+        else:
+            metrics = train_one_epoch(
+                epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, increment_cd_size, increment_cd_ops)
+                    
         if args.model == "Supernet":
             temp = temp * math.exp(-0.05)
             pit_model.update_softmax_temperature(temp)
@@ -164,6 +194,9 @@ def main(args):
         print("model MACs/cycle:", pit_model.get_macs_binarized()/pit_model.get_latency())
         print(f"cd_size:  {min(args.cd_size/100 + increment_cd_size*epoch, args.cd_size)} cd_ops: {min(args.cd_ops/100 + increment_cd_ops*epoch, args.cd_ops)}")
     print("Load best model")
+    if args.model == "Supernet":
+        for param in pit_model.net_parameters():
+            param.requires_grad = True
     search_checkpoint.load_best()
     print("final model size:", pit_model.get_size_binarized())
     print("final model MACs:", pit_model.get_macs_binarized())
@@ -190,6 +223,7 @@ def main(args):
     for epoch in range(N_EPOCHS):
         metrics = train_one_epoch(
             epoch, False, exported_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, increment_cd_size, increment_cd_ops)
+        adjust_learning_rate(optimizer, epoch)
         scheduler.step()
         print("epoch:", epoch)
         if epoch > 0:

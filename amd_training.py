@@ -313,7 +313,7 @@ def main(args):
         print("Running warmup")
 
     if not skip_warmup:
-        for epoch in range(80):
+        for epoch in range(N_EPOCHS):
             metrics = train_one_epoch(
                 epoch, False, model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, 1, 1)
             warmup_checkpoint(epoch, metrics['val_acc'])
