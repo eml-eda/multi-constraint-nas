@@ -3,6 +3,10 @@ log/
 saved_models/
 data/
 *.onnx
+warmup_checkpoints/
+search_checkpoints/
+finetuning_checkpoints/
+*data/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
