@@ -33,8 +33,8 @@ if [[ $_benchmark == "tiny" ]]; then
     echo "tiny benchmark"
     _epochs=50
     if [[ $_model == "PIT" ]]; then
-        _size_target=( 2.82e+06 5.64e+06 8.46e+06 )
-        _cd_size=( 2.4e-05 3.6e-05 7.2e-05 )
+        _size_target=( 8.46e+06 5.64e+06 2.82e+06 )
+        _cd_size=( 1.2e-06 6.6e-07 5.4e-07 )
     fi
 
     ## We suppose 10 MACs/cycles, Fr. 100 MHz

@@ -202,6 +202,37 @@ def get_tot_mem_linear(self) -> torch.Tensor:
     weights = cin * cout
     return (mem_in + mem_out + weights ) #- self.TARGET
 
+
+def get_individual_mem_conv(self) -> torch.Tensor:
+    # Compute actual integer number of input channels
+    cin_mask = self.input_features_calculator.features_mask
+    cin = torch.sum(PITBinarizer.apply(cin_mask, self._binarization_threshold))
+    # Compute actual integer number of output channels
+    cout_mask = self.out_features_masker.theta
+    cout = torch.sum(PITBinarizer.apply(cout_mask, self._binarization_threshold))
+    # Finally compute cost
+    mem_in = (self.out_height * self.stride[0]) * (self.out_width * self.stride[1]) * cin
+    mem_out = self.out_height * self.out_width * cout
+    weights = cin * cout * self.kernel_size[0] * self.kernel_size[1]
+    if self.groups == 1:
+        weights = cin * cout * self.kernel_size[0] * self.kernel_size[1]
+    else:
+        weights = cout * self.kernel_size[0] * self.kernel_size[1]
+    return mem_in, mem_out, weights
+
+def get_individual_mem_linear(self) -> torch.Tensor:
+    # Compute actual integer number of input channels
+    cin_mask = self.input_features_calculator.features_mask
+    cin = torch.sum(PITBinarizer.apply(cin_mask, self._binarization_threshold))
+    # Compute actual integer number of output channels
+    cout_mask = self.out_features_masker.theta
+    cout = torch.sum(PITBinarizer.apply(cout_mask, self._binarization_threshold))
+    # Finally compute cost
+    mem_in = cin
+    mem_out = cout
+    weights = cin * cout
+    return mem_in, mem_out, weights
+
 def get_Lx_level_constraint_conv(self) -> torch.Tensor:
     # Compute actual integer number of input channels
     cin_mask = self.input_features_calculator.features_mask
@@ -217,7 +248,7 @@ def get_Lx_level_constraint_conv(self) -> torch.Tensor:
         weights = cin * cout * self.kernel_size[0] * self.kernel_size[1]
     else:
         weights = cout * self.kernel_size[0] * self.kernel_size[1]
-    return (mem_in + mem_out + weights ) - self.TARGET
+    return torch.max(( mem_in + mem_out + weights - self.TARGET), torch.FloatTensor([0]).to("cuda"))[0]
 
 def get_Lx_level_constraint_linear(self) -> torch.Tensor:
     # Compute actual integer number of input channels
@@ -230,4 +261,4 @@ def get_Lx_level_constraint_linear(self) -> torch.Tensor:
     mem_in = cin
     mem_out = cout
     weights = cin * cout
-    return (mem_in + mem_out + weights ) - self.TARGET
+    return torch.max(( mem_in + mem_out + weights - self.TARGET), torch.FloatTensor([0]).to("cuda"))[0]

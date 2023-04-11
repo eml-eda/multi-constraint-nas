@@ -81,7 +81,7 @@ def main(args):
         input_example = torch.unsqueeze(datasets[0][0][0], 0).to(device)
         input_shape = datasets[0][0][0].numpy().shape
 
-    print(summary(model, input_example, show_input=False, show_hierarchical=True))
+    # print(summary(model, input_example, show_input=False, show_hierarchical=True))
 
     # Warmup Loop
     criterion = icl.get_default_criterion()
@@ -91,11 +91,11 @@ def main(args):
     warmup_checkpoint = CheckPoint('./warmup_checkpoints', model, optimizer, 'max',fmt=name+'_{epoch:03d}.pt')
     skip_warmup = True
     if pathlib.Path(f'./warmup_checkpoints/final_best_warmup_tiny_{args.model}.ckp').exists():
-        warmup_checkpoint.load(f'./warmup_checkpoints/final_best_warmup_tiny_{args.model}.ckp')
-        print("Skipping warmup")
+        #warmup_checkpoint.load(f'./warmup_checkpoints/final_best_warmup_tiny_{args.model}.ckp')
+        print("Skipping warmup 224")
     else:
         skip_warmup = False
-        print("Running warmup")
+        print("Running warmup 224")
 
     if not skip_warmup:
         for epoch in range(N_EPOCHS):
@@ -109,9 +109,6 @@ def main(args):
     
     print("Warmup Test Set 224 Loss:", test_metrics['loss'])
     print("Warmup Test Set 224 Accuracy:", test_metrics['acc'])
-
-    name = f"ck_tiny_{args.model}"
-    warmup_checkpoint = CheckPoint('./warmup_checkpoints', model, optimizer, 'max',fmt=name+'_{epoch:03d}.pt')
     # Get the Data with 64pixel resolution as full-imagenet
     datasets = icl.get_data(inp_res=64)
     dataloaders = icl.build_dataloaders(datasets)
@@ -122,18 +119,26 @@ def main(args):
             'state_dict': model.state_dict(),  # state-dict of previously trained model
             'std_head': False}
     model = icl.get_reference_model('resnet_18', model_config=config)
-    if torch.cuda.is_available():
-        model = model.cuda()
+    model = model.to(device)
+
 
     # Model Summary
-    input_example = torch.unsqueeze(datasets[0][0][0], 0)
-    print(summary(model, input_example.to(device), show_input=False, show_hierarchical=True))
+    input_example = torch.unsqueeze(datasets[0][0][0], 0).to(device)
+    input_shape = datasets[0][0][0].numpy().shape
 
     # Get Training Settings
     criterion = icl.get_default_criterion()
     optimizer = icl.get_default_optimizer(model)
     scheduler = icl.get_default_scheduler(optimizer)
 
+    name = f"ck_tiny_{args.model}"
+    warmup_checkpoint = CheckPoint('./warmup_checkpoints', model, optimizer, 'max',fmt=name+'_{epoch:03d}.pt')
+    if pathlib.Path(f'./warmup_checkpoints/final_best_warmup_tiny_{args.model}.ckp').exists():
+        warmup_checkpoint.load(f'./warmup_checkpoints/final_best_warmup_tiny_{args.model}.ckp')
+        print("Skipping warmup 64")
+    else:
+        skip_warmup = False
+        print("Running warmup 64")
     if not skip_warmup:
         for epoch in range(N_EPOCHS):
             metrics = train_one_epoch(
@@ -156,9 +161,6 @@ def main(args):
         pit_model.train_features = True
         pit_model.train_rf = False
         pit_model.train_dilation = False
-    elif args.model == "Supernet":
-        pit_model = PITSuperNet(model, input_shape=input_shape, autoconvert_layers = False)
-        pit_model = pit_model.to(device)
     print(summary(pit_model, input_example, show_input=False, show_hierarchical=True))
 
     # Search Loop
@@ -166,45 +168,32 @@ def main(args):
     param_dicts = [
         {'params': pit_model.nas_parameters(), 'weight_decay': 0},
         {'params': pit_model.net_parameters()}]
-    optimizer = torch.optim.Adam(param_dicts, lr=0.001, weight_decay=1e-4)
+    
+    optimizer = torch.optim.SGD(param_dicts, lr=0.001, momentum=0.9, weight_decay=1e-4)
+    arch_optimizer = torch.optim.Adam(pit_model.nas_parameters(), lr=0.001)
     scheduler = icl.get_default_scheduler(optimizer)
     # Set EarlyStop with a patience of 20 epochs and CheckPoint
-    earlystop = EarlyStopping(patience=20, mode='max')
+    earlystop = EarlyStopping(patience=10, mode='max')
     name = f"ck_tiny_opt_{args.model}_{args.loss_type}_targets_{args.loss_elements}_{args.l}_size_{args.size_target}_lat_{args.latency_target}"
     search_checkpoint = CheckPoint('./search_checkpoints', pit_model, optimizer, 'max', fmt=name+'_{epoch:03d}.pt')
     print("Initial model size:", pit_model.get_size_binarized())
     print("Initial model MACs:", pit_model.get_macs_binarized())
     print("Initial model latency:", pit_model.get_latency())
     print("Initial model MACs/cycle:", pit_model.get_macs_binarized()/pit_model.get_latency())
+    # test_metrics = evaluate(False, pit_model, criterion, test_dl, device)
+    
+    # print("Initial Test Set Loss:", test_metrics['loss'])
+    # print("Initial Test Set Accuracy:", test_metrics['acc'])
     increment_cd_size = (args.cd_size*99/100)/int(N_EPOCHS/2)
     increment_cd_ops = (args.cd_ops*99/100)/int(N_EPOCHS/2)
+    # search_checkpoint.epoch = 26
+    # search_checkpoint.update_best_path(26, 1)
     temp = 1
     for epoch in range(N_EPOCHS):
-        if args.model == "Supernet":
-            for param in pit_model.net_parameters():
-                param.requires_grad = True
-            for param in pit_model.nas_parameters():
-                param.requires_grad = False
-            metrics = train_one_epoch(
-                epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, increment_cd_size, increment_cd_ops)
-            for param in pit_model.net_parameters():
-                param.requires_grad = False
-            for param in pit_model.nas_parameters():
-                param.requires_grad = True
-            _ = train_one_epoch(
-                epoch, True, pit_model, criterion, optimizer, val_dl, val_dl, test_dl, device, args, increment_cd_size, increment_cd_ops)
-        else:
-            metrics = train_one_epoch(
-                epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, increment_cd_size, increment_cd_ops)
+        metrics = train_one_epoch(
+            epoch, True, pit_model, criterion, optimizer, train_dl, val_dl, test_dl, device, args, increment_cd_size, increment_cd_ops, arch_optimizer)
             
-        if args.model == "Supernet":
-            # temp = temp * math.exp(-0.1)
-            pit_model.update_softmax_temperature(temp)
-            for module in pit_model.modules(): 
-                if isinstance(module, PITSuperNetCombiner):
-                    print(nn.functional.softmax(module.alpha/module.softmax_temperature, dim=0))
-                    print(module.softmax_temperature)
-        if epoch > int(N_EPOCHS/2+N_EPOCHS/4):
+        if epoch > int(N_EPOCHS/2):
             search_checkpoint(epoch, metrics['val_acc'])
             if earlystop(metrics['val_acc']):
                 break
@@ -219,9 +208,6 @@ def main(args):
         print("model MACs/cycle:", pit_model.get_macs_binarized()/pit_model.get_latency())
         print(f"cd_size:  {min(args.cd_size/100 + increment_cd_size*epoch, args.cd_size)} cd_ops: {min(args.cd_ops/100 + increment_cd_ops*epoch, args.cd_ops)}")
     print("Load best model")
-    if args.model == "Supernet":
-        for param in pit_model.net_parameters():
-            param.requires_grad = True
     search_checkpoint.load_best()
     print("final model size:", pit_model.get_size_binarized())
     print("final model MACs:", pit_model.get_macs_binarized())
@@ -269,7 +255,7 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='NAS Search and Fine-Tuning')
-    parser.add_argument('--epochs', type=int, help='Number of Training Epochs')
+    parser.add_argument('--epochs', type=int, default = 50, help='Number of Training Epochs')
     parser.add_argument('--cd-size', type=float, default=0.0, metavar='CD',
                         help='complexity decay size (default: 0.0)')
     parser.add_argument('--cd-ops', type=float, default=0.0, metavar='CD',
@@ -288,7 +274,7 @@ if __name__ == '__main__':
                         help='const, increasing')
     parser.add_argument('--model', type=str, default="PIT",
                         help='PIT, Supernet')
-    parser.add_argument('--hardware', type=str, default="const",
+    parser.add_argument('--hardware', type=str, default="None",
                         help='GAP8, Diana, None')
     parser.add_argument('--gumbel', type=str, default="False",
                         help='True or False')
