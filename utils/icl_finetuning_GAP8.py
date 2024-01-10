@@ -10,16 +10,16 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR
 
-from flexnas.methods import PIT
-from flexnas.methods import PITSuperNet
-from flexnas.methods.pit.nn import PITConv2d, PITLinear
-from flexnas.methods.pit_supernet.nn import PITSuperNetCombiner
-import pytorch_benchmarks.tiny_imagenet as icl
+from plinio.methods import PIT
+from plinio.methods import PITSuperNet
+from plinio.methods.pit.nn import PITConv2d, PITLinear
+from plinio.methods.pit_supernet.nn import PITSuperNetCombiner
+import pytorch_benchmarks.image_classification as icl
 from pytorch_benchmarks.utils import AverageMeter, seed_all, accuracy, CheckPoint, EarlyStopping
-from hardware_model import get_memory_layer_constraints, get_Lx_level_constraint_conv, get_Lx_level_constraint_linear, get_individual_mem_conv, get_individual_mem_linear
+from utils.hardware_model import get_memory_layer_constraints, get_Lx_level_constraint_conv, get_Lx_level_constraint_linear, get_tot_mem_conv, get_tot_mem_linear
 
-from utils import evaluate, train_one_epoch_finetuning, train_one_epoch, train_one_epoch_finetuning_sizeloss
-from models import ResNet8PITSN
+from utils.utils import evaluate, train_one_epoch_finetuning
+from utils.models import ResNet8PITSN
 
 def main(args):
     data_dir = args.data_dir
@@ -30,15 +30,14 @@ def main(args):
     # Ensure determinstic execution
     seed_all(seed=14)
     # Get the Data
-    datasets2 = icl.get_data(inp_res=64)
+    datasets2 = icl.get_data(data_dir=data_dir, perf_samples=False)
     dataloaders2 = icl.build_dataloaders(datasets2)
     train_dl, val_dl, test_dl_all = dataloaders2
     def load(model, path):
         checkpoint = torch.load(path)
         model.load_state_dict(checkpoint['model_state_dict'])
         return model
-    config = {'pretrained': False, 'std_head': False}
-    model = icl.get_reference_model('resnet_18', model_config=config).to(device)
+    model = icl.get_reference_model('resnet_8')
     input_example = torch.unsqueeze(datasets2[0][0][0], 0).to(device)
     input_shape = datasets2[0][0][0].numpy().shape
     criterion = icl.get_default_criterion()
@@ -51,13 +50,13 @@ def main(args):
         pit_model = PITSuperNet(pit_model, input_shape=input_shape, autoconvert_layers = False).to(device)
     log = 0
     for file in os.listdir("search_checkpoints"):
-        if f"ck_tiny_opt_{args.model}_max_targets_mem_constraint+lat_constraint_increasing_size_{args.size_target}_lat_{args.latency_target}_" in file:
+        if f"ck_icl_opt_{args.model}_max_targets_mem_constraint+lat_constraint_increasing_size_{args.size_target}_lat_{args.latency_target}_" in file:
             if int(file.split(".")[-2].split("_")[-1]) > log:
                 log = int(file.split(".")[-2].split("_")[-1])
     if log < 100:
-        pit_model=load(pit_model, f'search_checkpoints/ck_tiny_opt_{args.model}_max_targets_mem_constraint+lat_constraint_increasing_size_{args.size_target}_lat_{args.latency_target}_0{log}.pt')
+        pit_model=load(pit_model, f'search_checkpoints/ck_icl_opt_{args.model}_max_targets_mem_constraint+lat_constraint_increasing_size_{args.size_target}_lat_{args.latency_target}_0{log}.pt')
     else:
-        pit_model=load(pit_model, f'search_checkpoints/ck_tiny_opt_{args.model}_max_targets_mem_constraint+lat_constraint_increasing_size_{args.size_target}_lat_{args.latency_target}_{log}.pt')
+        pit_model=load(pit_model, f'search_checkpoints/ck_icl_opt_{args.model}_max_targets_mem_constraint+lat_constraint_increasing_size_{args.size_target}_lat_{args.latency_target}_{log}.pt')
     
     print("final model size:", pit_model.get_size_binarized())
     print("final model MACs:", pit_model.get_macs_binarized())
@@ -67,15 +66,18 @@ def main(args):
     print(summary(exported_model, input_example, show_input=False, show_hierarchical=True))
     log = 0
     for file in os.listdir("finetuning_checkpoints"):
-        if f"ck_tiny_opt_{args.model}_max_targets_mem_constraint+lat_constraint_increasing_size_{args.size_target}_lat_{args.latency_target}_" in file:
+        if f"ck_icl_opt_{args.model}_max_targets_mem_constraint+lat_constraint_increasing_size_{args.size_target}_lat_{args.latency_target}_" in file:
             if int(file.split(".")[-2].split("_")[-1]) > log:
                 log = int(file.split(".")[-2].split("_")[-1])
     if log < 100:
-        exported_model=load(exported_model, f'finetuning_checkpoints/ck_tiny_opt_{args.model}_max_targets_mem_constraint+lat_constraint_increasing_size_{args.size_target}_lat_{args.latency_target}_0{log}.pt')
+        exported_model=load(exported_model, f'finetuning_checkpoints/ck_icl_opt_{args.model}_max_targets_mem_constraint+lat_constraint_increasing_size_{args.size_target}_lat_{args.latency_target}_0{log}.pt')
     else:
-        exported_model=load(exported_model, f'finetuning_checkpoints/ck_tiny_opt_{args.model}_max_targets_mem_constraint+lat_constraint_increasing_size_{args.size_target}_lat_{args.latency_target}_{log}.pt')
-    PITConv2d.get_tot_mem = get_individual_mem_conv
-    PITLinear.get_tot_mem = get_individual_mem_linear
+        exported_model=load(exported_model, f'finetuning_checkpoints/ck_icl_opt_{args.model}_max_targets_mem_constraint+lat_constraint_increasing_size_{args.size_target}_lat_{args.latency_target}_{log}.pt')
+    test_metrics2 = evaluate(True, exported_model, criterion, test_dl_all, device)
+    print("Search Test Set Accuracy:", test_metrics2['acc'])
+
+    PITConv2d.get_tot_mem = get_tot_mem_conv
+    PITLinear.get_tot_mem = get_tot_mem_linear
     PITConv2d.get_Lx_level_constraint = get_Lx_level_constraint_conv
     PITLinear.get_Lx_level_constraint = get_Lx_level_constraint_linear
     PIT.get_memory_layer_constraints = get_memory_layer_constraints
@@ -89,14 +91,16 @@ def main(args):
     percentage = 30
     for layer in pit_model._target_layers:
         # size += layer.get_size()
-        mem_in, mem_out, weights = layer.get_tot_mem()
-        if (mem_in + mem_out + weights) < (44000+int(4400/100*percentage)):
+        size = layer.get_tot_mem()
+        if size < (44000+int(4400/100*percentage)):
             layer.TARGET = 44000
-        elif (mem_in + mem_out + weights) < (400000+int(400000/100*percentage)):
+        elif size < (400000+int(400000/100*percentage)):
             layer.TARGET = 400000
         else:
-            layer.TARGET = 8000000
-        print(f"Mem_in: {mem_in}, Mem_out: {mem_out}, W: {weights}, Target: {layer.TARGET}")
+            layer.TARGET = size
+        print(f"Size: {size}, Target: {layer.TARGET}")
+
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='NAS Search and Fine-Tuning')

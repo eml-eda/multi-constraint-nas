@@ -9,10 +9,10 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR
 
-from flexnas.methods import PIT
-from flexnas.methods import PITSuperNet
-from flexnas.methods.pit.nn import PITConv2d, PITLinear
-from flexnas.methods.pit_supernet.nn import PITSuperNetCombiner
+from plinio.methods import PIT
+from plinio.methods import PITSuperNet
+from plinio.methods.pit.nn import PITConv2d, PITLinear
+from plinio.methods.pit_supernet.nn import PITSuperNetCombiner
 import pytorch_benchmarks.anomaly_detection as amd
 from pytorch_benchmarks.anomaly_detection.data import _file_to_vector_array
 from pytorch_benchmarks.utils import AverageMeter, seed_all, accuracy, CheckPoint, EarlyStopping

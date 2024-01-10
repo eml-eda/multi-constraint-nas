@@ -9,17 +9,17 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR
 
-from flexnas.methods import PIT
-from flexnas.methods import PITSuperNet
-from flexnas.methods.pit.nn import PITConv2d, PITLinear
-from flexnas.methods.pit_supernet.nn import PITSuperNetCombiner
+from plinio.methods import PIT
+from plinio.methods import PITSuperNet
+from plinio.methods.pit.nn import PITConv2d, PITLinear
+from plinio.methods.pit_supernet.nn import PITSuperNetCombiner
 import pytorch_benchmarks.image_classification as icl
 from pytorch_benchmarks.utils import AverageMeter, seed_all, accuracy, CheckPoint, EarlyStopping
 
-from utils import evaluate, train_one_epoch
-from hardware_model import get_latency_conv2D_GAP8, get_latency_Linear_GAP8, get_latency_conv2D_Diana, get_latency_Linear_Diana, get_latency_total
-from hardware_model import compute_layer_latency_GAP8, compute_layer_latency_Diana, get_latency_binarized_supernet, get_size_binarized_supernet
-from models import ResNet8PITSN
+from utils.utils import evaluate, train_one_epoch
+from utils.hardware_model import get_latency_conv2D_GAP8, get_latency_Linear_GAP8, get_latency_conv2D_Diana, get_latency_Linear_Diana, get_latency_total
+from utils.hardware_model import compute_layer_latency_GAP8, compute_layer_latency_Diana, get_latency_binarized_supernet, get_size_binarized_supernet
+from utils.models import ResNet8PITSN
 
 def main(args):
     DATA_DIR = args.data_dir
@@ -238,7 +238,7 @@ def main(args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='NAS Search and Fine-Tuning')
-    parser.add_argument('--epochs', type=int, help='Number of Training Epochs')
+    parser.add_argument('--epochs', type=int, default=100, help='Number of Training Epochs')
     parser.add_argument('--cd-size', type=float, default=0.0, metavar='CD',
                         help='complexity decay size (default: 0.0)')
     parser.add_argument('--cd-ops', type=float, default=0.0, metavar='CD',
@@ -255,7 +255,7 @@ if __name__ == '__main__':
                         help='loss type: mem_constraint, mem_obj, lat_constraint, lat_obj,and fusion')
     parser.add_argument('--l', type=str, default="const",
                         help='const, increasing')
-    parser.add_argument('--model', type=str, default="const",
+    parser.add_argument('--model', type=str, default="PIT",
                         help='PIT, Supernet')
     parser.add_argument('--hardware', type=str, default="const",
                         help='GAP8, Diana, None')

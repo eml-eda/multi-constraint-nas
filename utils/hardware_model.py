@@ -10,9 +10,9 @@ from typing import List, cast, Iterator, Tuple, Any, Dict
 import math
 import torch
 import torch.nn as nn
-from flexnas.methods.pit.nn.binarizer import PITBinarizer
+from plinio.methods.pit.nn.binarizer import PITBinarizer
 from torchinfo import summary
-from flexnas.methods.pit.nn import PITModule
+from plinio.methods.pit.nn import PITModule
 
 class FloorSTE(torch.autograd.Function):
     @staticmethod
